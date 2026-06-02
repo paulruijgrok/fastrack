@@ -1,0 +1,28 @@
+# Analysis outputs / runs
+outputs/
+linking_comparison/
+
+# Large data + reference material (don't commit; too big for git)
+examples/
+Old code/
+
+# Generated FAST artifacts that may sit inside data dirs
+*.npy
+filXYs*.npy
+links.npy
+*.in
+ppss_dir/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
