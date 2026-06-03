@@ -50,11 +50,14 @@ def parse_mean_file(path):
 
 
 def find_mean_file(run_dir):
-    matches = glob.glob(os.path.join(run_dir, "outputs", "*", "combined", "MEAN_values.txt"))
+    # Search recursively so it is robust to how the output folder is nested.
+    matches = glob.glob(
+        os.path.join(run_dir, "**", "combined", "MEAN_values.txt"), recursive=True
+    )
     return matches[0] if matches else None
 
 
-def run_mode(dataset_abs, run_dir, legacy, nprocs):
+def run_mode(dataset_abs, run_dir, legacy, nprocs, verbose):
     os.makedirs(run_dir, exist_ok=True)
     cwd = os.getcwd()
     os.chdir(run_dir)
@@ -65,6 +68,7 @@ def run_mode(dataset_abs, run_dir, legacy, nprocs):
             force_analysis=True,
             legacy_linking=legacy,
             nprocs=nprocs,
+            verbose=verbose,
         )
     finally:
         os.chdir(cwd)
@@ -86,6 +90,8 @@ def main(argv=None):
     parser.add_argument("-j", default=None, type=int, help="parallel worker processes")
     parser.add_argument("--skip-runs", action="store_true",
                         help="don't re-run FAST; just re-parse existing run directories")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="verbose FAST output (per-frame progress and errors)")
     args = parser.parse_args(argv)
 
     dataset_abs = os.path.abspath(args.d)
@@ -100,9 +106,11 @@ def main(argv=None):
         legacy_file = find_mean_file(legacy_dir)
     else:
         print("=== Running CORRECTED linking (default) ===")
-        corrected_file = run_mode(dataset_abs, corrected_dir, legacy=False, nprocs=args.j)
+        corrected_file = run_mode(dataset_abs, corrected_dir, legacy=False,
+                                  nprocs=args.j, verbose=args.verbose)
         print("=== Running LEGACY linking (original Python 2 behaviour) ===")
-        legacy_file = run_mode(dataset_abs, legacy_dir, legacy=True, nprocs=args.j)
+        legacy_file = run_mode(dataset_abs, legacy_dir, legacy=True,
+                               nprocs=args.j, verbose=args.verbose)
 
     corrected = parse_mean_file(corrected_file) if corrected_file else {}
     legacy = parse_mean_file(legacy_file) if legacy_file else {}

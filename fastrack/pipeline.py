@@ -32,11 +32,13 @@ def _extract_frame(task):
     given the directory directly, matching how the original per-folder script
     set ``new_Motility.directory``.
     """
-    directory, header, tail, frame_no, force = task
+    directory, header, tail, frame_no, force, fast_rank, morph_contrast = task
     m = motility.Motility()
     m.directory = directory
     m.header = header
     m.tail = tail
+    m.fast_rank = fast_rank
+    m.morph_contrast = morph_contrast
     try:
         m.read_frame(float(frame_no), force)
         m.save_frame()
@@ -75,23 +77,42 @@ def run(
     log_area_score_cutoff=1.0,
     diff_log_area_score_cutoff=0.5,
     legacy_linking=False,
+    fast_rank=True,
+    morph_contrast=False,
     nprocs=None,
     verbose=False,
 ):
     """Run the full FAST analysis over a directory tree of movies."""
     if nprocs is None:
-        nprocs = max(1, cpu_count() - 1)
+        # Frame extraction is the dominant, embarrassingly-parallel stage, so
+        # default to all logical cores (override with -j).
+        nprocs = max(1, cpu_count())
 
-    if main_dir is not None and len(main_dir) > 0 and main_dir[-1] == "/":
-        main_dir = main_dir[:-1]
+    if main_dir is not None and len(main_dir) > 0:
+        # Strip a trailing path separator (either kind, for cross-platform use).
+        main_dir = main_dir.rstrip("/\\")
 
     if main_dir is None or not os.path.isdir(main_dir):
         sys.exit("Directory doesn't exist. Program is exiting.")
 
+    # Resolve the dataset path up front so the analysis works regardless of
+    # whether the caller passed a relative or an absolute ``-d``.  Output names
+    # are derived from the dataset *basename* (not the full path), so the
+    # results always land under ``<cwd>/outputs/<dataset>__pt_.../`` and never
+    # collapse to an absolute path via ``os.path.join``.
+    main_dir_abs = os.path.abspath(main_dir)
+    anchor = os.path.dirname(main_dir_abs)
+    dataset_name = os.path.basename(main_dir_abs)
+
+    def flat(p):
+        """Dataset-relative path flattened into a single filename component."""
+        rel = os.path.relpath(os.path.abspath(p), anchor)
+        return rel.replace(os.sep, "_")
+
     tolerance_prop = "none" if percent_tolerance == 500 else str(percent_tolerance)
 
     main_out_dir = (
-        main_dir
+        dataset_name
         + "__pt_" + str(tolerance_prop)
         + "__n_" + str(num_frames_ave)
         + "__ymax_" + str(int(plot_ymax))
@@ -166,7 +187,7 @@ def run(
 
         data_info = top_root.split(os.sep)
         top_folder = data_info[-1]
-        root_header = "_".join(data_info)
+        root_header = flat(top_root)
 
         slide_num = -1
         if len(data_info) > 1:
@@ -202,12 +223,14 @@ def run(
         os.chdir(top_root)
 
         for final_folder in process_folders[top_root]:
-            root = top_root + "/" + final_folder
+            root = os.path.join(top_root, final_folder)
 
             new_Frame = motility.Frame()
             new_Frame.directory = final_folder
             new_Frame.header = "img_000000"
             new_Frame.tail = tail_tif
+            new_Frame.fast_rank = fast_rank
+            new_Frame.morph_contrast = morph_contrast
             file_exists = new_Frame.read_frame(0)
             frame_width = new_Frame.width
             frame_height = new_Frame.height
@@ -217,14 +240,15 @@ def run(
                 print("Bad picture quality in %s" % (root))
                 continue
 
+            root_flat = flat(root)
             out_vl_png_fname = os.path.join(
-                cwd, "outputs", main_out_dir, "_".join(root.split("/")) + "_length_velocity.png"
+                cwd, "outputs", main_out_dir, root_flat + "_length_velocity.png"
             )
             out_vl_txt_fname = os.path.join(
-                cwd, "outputs", main_out_dir, "_".join(root.split("/")) + "_"
+                cwd, "outputs", main_out_dir, root_flat + "_"
             )
             out_path_fname = os.path.join(
-                cwd, "outputs", main_out_dir, "_".join(root.split("/")) + "_paths"
+                cwd, "outputs", main_out_dir, root_flat + "_paths"
             )
 
             print("Processing tif files in %s" % (root))
@@ -253,7 +277,8 @@ def run(
 
             # ----- parallel per-frame filament extraction ----------------- #
             tasks = [
-                (final_folder, "img_000000", tail_tif, no, force_analysis)
+                (final_folder, "img_000000", tail_tif, no, force_analysis,
+                 fast_rank, morph_contrast)
                 for no in frame_nos
             ]
             if nprocs > 1 and len(tasks) > 1:
@@ -262,9 +287,20 @@ def run(
             else:
                 results = [_extract_frame(t) for t in tasks]
 
-            for no, err in results:
-                if err is not None and verbose:
-                    print("  frame %d failed: %s" % (no, err))
+            failures = [(no, err) for no, err in results if err is not None]
+            if failures:
+                # Always surface failures: a silent extraction failure would
+                # otherwise look like "no output" downstream.
+                print("  %d/%d frames failed to extract in %s"
+                      % (len(failures), len(results), root))
+                # Show the first failure (and all of them in verbose mode) so
+                # the underlying error is visible.
+                shown = failures if verbose else failures[:1]
+                for no, err in shown:
+                    print("    frame %d: %s" % (no, err))
+                if len(failures) == len(results):
+                    print("  All frames failed; skipping %s." % root)
+                    continue
 
             # ----- build / load frame links ------------------------------- #
             new_motility = motility.Motility()
@@ -280,6 +316,8 @@ def run(
             new_motility.log_area_score_cutoff = log_area_score_cutoff
             new_motility.diff_log_area_score_cutoff = diff_log_area_score_cutoff
             new_motility.legacy_linking = legacy_linking
+            new_motility.fast_rank = fast_rank
+            new_motility.morph_contrast = morph_contrast
 
             if not new_motility.read_frame_links():
                 new_motility.load_frame1(0)

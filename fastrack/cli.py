@@ -45,6 +45,15 @@ def fast_main(argv=None):
     parser.add_argument("--legacy-linking", action="store_true", default=False,
                         help="reproduce the original Python 2 frame-linking behaviour (leftover-loop-variable "
                              "partner selection) for bit-for-bit reproduction of published results")
+    parser.add_argument("--exact-rank", "--no-fast-rank", dest="fast_rank",
+                        action="store_false", default=True,
+                        help="run the full-frame percentile filters on the native 16-bit data "
+                             "instead of the default 8-bit rescaling. Slower but exact; use this "
+                             "for the reference/validation path. (Default: fast 8-bit rank filters.)")
+    parser.add_argument("--morph-contrast", action="store_true", default=False,
+                        help="compute the local-contrast map with a one-pass morphological gradient "
+                             "(local max-min) instead of two percentile passes. Faster but more "
+                             "noise-sensitive; off by default, A/B with compare_fast_rank.py")
     parser.add_argument("-v", action="store_true", default=False, help="verbose output for debugging")
     args = parser.parse_args(argv)
 
@@ -68,6 +77,8 @@ def fast_main(argv=None):
         log_area_score_cutoff=args.lascore,
         diff_log_area_score_cutoff=args.dlascore,
         legacy_linking=args.legacy_linking,
+        fast_rank=args.fast_rank,
+        morph_contrast=args.morph_contrast,
         nprocs=args.j,
         verbose=args.v,
     )

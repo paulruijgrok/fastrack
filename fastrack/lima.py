@@ -78,20 +78,20 @@ def run(
     fit_err_function = err_sms
     fit_function_name = "_stop_model"
 
-    if main_dir is not None and len(main_dir) > 0 and main_dir[-1] == "/":
-        main_dir = main_dir[:-1]
+    if main_dir is not None and len(main_dir) > 0:
+        main_dir = main_dir.rstrip("/\\")
     if main_dir is None or not os.path.isdir(main_dir):
         sys.exit("Directory or file doesn't exist. Program is exiting.")
 
-    all_mean_file = main_dir + "/combined/MEAN_values.txt"
-    all_std_file = main_dir + "/combined/SEM_values.txt"
+    all_mean_file = os.path.join(main_dir, "combined", "MEAN_values.txt")
+    all_std_file = os.path.join(main_dir, "combined", "SEM_values.txt")
     if not os.path.isfile(all_mean_file):
         sys.exit("Combined analysis file does not exist. Program is exiting.")
 
     valid, std_data = read_stats_files(all_std_file)
     valid, mean_data = read_stats_files(all_mean_file)
 
-    header = main_dir + "/combined/lima"
+    header = os.path.join(main_dir, "combined", "lima")
     os.makedirs(header, exist_ok=True)
 
     header_data = [mean_data[i][:9] for i in valid]

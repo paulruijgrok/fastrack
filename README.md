@@ -34,24 +34,41 @@ the original test dataset and place it under `examples/` with the same layout
 data are available from Tural Aksel's upstream project at
 https://github.com/turalaksel/FAST.
 
-## Install (on your Mac)
+## Install
+
+The package runs on macOS, Linux, and Windows. From the repository root:
+
+**macOS / Linux**
 
 ```bash
-cd "/Users/paulruijgrok/Documents/Claude/Projects/FASTrack"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-This installs the runtime dependencies (numpy, scipy, scikit-image,
-opencv-python, matplotlib, imageio) and the three command-line tools `fast`,
-`lima`, and `stack2tifs`.
+**Windows (PowerShell)**
 
-For movie generation (`fast -m`) you also need ffmpeg:
-
-```bash
-brew install ffmpeg
+```powershell
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
 ```
+
+This installs the runtime dependencies (numpy, scipy, scikit-image,
+opencv-python, matplotlib, imageio, pillow) and the three command-line tools
+`fast`, `lima`, and `stack2tifs`.
+
+Movie generation (`fast -m`) additionally needs **ffmpeg** on your `PATH`:
+
+- macOS: `brew install ffmpeg`
+- Debian/Ubuntu: `sudo apt install ffmpeg`
+- Windows: `winget install ffmpeg` (or `choco install ffmpeg`)
+
+The movie is written as H.264 in an MP4 container (`filament_tracks.mp4`),
+which opens directly in QuickTime, ImageJ, browsers, and most players. If
+ffmpeg is not found, analysis still runs — only the optional tracking movie
+is skipped, with a notice. Skeleton/path image compositing is done in pure
+Python (Pillow), so no ImageMagick install is required on any platform.
 
 ## Run on the test dataset
 
@@ -69,8 +86,57 @@ including per-movie `*_length_velocity.png` plots and combined
 Useful flags (defaults match the original): `-px 80.65` (pixel size nm),
 `-n 5` (frames averaged), `-p 5` (min path length), `-maxd 2016.25`
 (max inter-frame distance nm), `-minv 80` (stuck threshold nm/s),
-`-j N` (worker processes), `-f` (force re-analysis), `-m` (make tracking movie),
+`-j N` (worker processes; defaults to all logical cores), `-f` (force
+re-analysis), `-m` (make tracking movie), `--exact-rank` (use the exact 16-bit
+percentile filters instead of the default 8-bit fast path — slower but exact),
+`--morph-contrast` (one-pass morphological-gradient contrast instead of two
+percentile passes — faster but noise-sensitive; off by default, A/B it),
 `-v` (verbose).
+
+The dominant per-frame cost is the two radius-15 local percentile filters in
+`entropy_clusters` (and `check_picture_quality`). scikit-image rank filters keep
+a per-pixel local histogram whose size scales with grey levels (65 536 for
+uint16 vs 256 for uint8), so by default each frame is rescaled to 8-bit before
+those filters. On the example dataset this is ~1.8× faster with <0.4% velocity
+deltas and an unchanged α>β ordering. Pass `--exact-rank` for the reference
+16-bit path, e.g. when producing validation numbers. Profile both paths on your
+data with `profile_frame.py` (add `--fast-rank` to time the 8-bit path) and A/B
+the velocities with `compare_fast_rank.py`.
+
+### Recommended configurations
+
+There are two useful operating points. Use the **fast screening** config for
+routine throughput and exploration, and the **exact validation** config for any
+numbers that go into a figure or table.
+
+**Fast screening** — `fast_rank` (default on) + morphological-gradient contrast
++ all cores:
+
+```bash
+fast -d examples/unloaded_motility/micromanager_tifs --morph-contrast -j 8
+```
+
+On the example dataset this runs end-to-end in roughly a third of the exact-path
+time (~3× overall). Velocities stay within about 1–1.5% of the reference and the
+α>β ordering is unchanged, which is well within tolerance for screening.
+
+**Exact validation** — native 16-bit percentile filters, no morphological
+approximation:
+
+```bash
+fast -d examples/unloaded_motility/micromanager_tifs --exact-rank -f
+```
+
+`--exact-rank` restores the 16-bit percentile path and omitting `--morph-contrast`
+keeps the exact 5th/95th-percentile contrast map. Use this to produce the
+reference numbers; `-f` forces re-analysis so cached fast-path filaments are not
+reused.
+
+The speed/accuracy trade-off of each optimization is `fast_rank` (≈1.8×, <0.4%
+deltas, nearly lossless), `--morph-contrast` (further speedup, ~1–1.5% deltas,
+more noise-sensitive), and `-j` (lossless, scales with cores). A/B any config
+against the exact path on your own data with `compare_fast_rank.py`
+(add `--morph` to include the morphological-gradient path).
 
 To convert the original stacks to frame files first (if needed):
 

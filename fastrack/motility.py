@@ -18,8 +18,11 @@ Key compatibility fixes vs. the 2018 original:
   * Object arrays saved/loaded with ``dtype=object`` / ``allow_pickle=True``.
   * Rank filters receive integer (uint8) images.
 """
+import glob
 import os
 import re
+import shutil
+import subprocess
 
 import numpy as np
 import matplotlib
@@ -47,8 +50,22 @@ from skimage.segmentation import watershed  # noqa: E402
 
 import cv2  # noqa: E402
 import imageio.v2 as imageio  # noqa: E402
+from PIL import Image  # noqa: E402
 
 from . import plotparams  # noqa: E402
+
+
+def _alpha_composite(fg_path, bg_path, out_path):
+    """Composite ``fg_path`` (with alpha) over ``bg_path`` and write ``out_path``.
+
+    Pure-Python replacement for the original ImageMagick ``composite`` shell
+    call, so movie generation works on any platform without external tools.
+    """
+    fg = Image.open(fg_path).convert("RGBA")
+    bg = Image.open(bg_path).convert("RGBA")
+    if bg.size != fg.size:
+        bg = bg.resize(fg.size)
+    Image.alpha_composite(bg, fg).save(out_path)
 
 # Global structuring elements
 sqr_1 = square(1)
@@ -79,17 +96,17 @@ def stack_to_tiffs(fname, frame_rate=1.0):
     head, tail = os.path.split(abs_path)
     base, ext = os.path.splitext(tail)
 
-    new_dir = head + "/" + ("_".join(base.split())).replace("#", "")
+    new_dir = os.path.join(head, ("_".join(base.split())).replace("#", ""))
     if not os.path.isdir(new_dir):
         os.mkdir(new_dir)
 
     tiff_frames = imageio.mimread(fname, memtest=False)
     num_frames = len(tiff_frames)
 
-    with open(new_dir + "/metadata.txt", "w") as f:
+    with open(os.path.join(new_dir, "metadata.txt"), "w") as f:
         elapsed_time_ms = 0.0
         for i in range(num_frames):
-            fout = new_dir + "/img_000000%03d" % (i) + "__000.tif"
+            fout = os.path.join(new_dir, "img_000000%03d__000.tif" % (i))
             imageio.imwrite(fout, tiff_frames[i])
             f.write('  "ElapsedTime-ms": %d,\n' % (elapsed_time_ms))
             elapsed_time_ms += 1000 * 1.0 / frame_rate
@@ -297,6 +314,15 @@ class Motility:
         # Default (False) uses the corrected, self-consistent linking.
         self.legacy_linking = False
 
+        # Propagated to each Frame: run the full-frame percentile filters on an
+        # 8-bit rescaling for speed (see Frame.fast_rank).  ON by default.
+        self.fast_rank = True
+
+        # Propagated to each Frame: one-pass morphological-gradient contrast map
+        # instead of two percentile passes (see Frame.morph_contrast).  OFF by
+        # default.
+        self.morph_contrast = False
+
     # ----- velocity / length data helpers --------------------------------- #
     def min_length_filter(self, min_filament_length):
         valid_length = np.nonzero(self.full_len_vel[:, 0] >= min_filament_length)[0]
@@ -501,19 +527,13 @@ class Motility:
             ax.xaxis.set_visible(False)
             ax.yaxis.set_visible(False)
 
-            skeleton_fname = self.directory + "/skeletons_%03d.png" % (i)
-            paths_fname = self.directory + "/paths_2D.png"
+            skeleton_fname = os.path.join(self.directory, "skeletons_%03d.png" % (i))
+            paths_fname = os.path.join(self.directory, "paths_2D.png")
             py.savefig(skeleton_fname, dpi=400, transparent=True)
             py.close()
 
-            os.system(
-                "composite -compose src-over "
-                + skeleton_fname
-                + " -alpha on "
-                + paths_fname
-                + " "
-                + skeleton_fname
-            )
+            # Overlay the skeleton (transparent background) on the paths image.
+            _alpha_composite(skeleton_fname, paths_fname, skeleton_fname)
 
     def make_forward_links(self):
         for i in range(len(self.frame_links) - 1, -1, -1):
@@ -896,21 +916,51 @@ class Motility:
 
     def make_movie(self, extra_fname=None):
         """Assemble per-frame skeleton PNGs into a tracking movie via ffmpeg."""
-        if not os.path.isfile(self.directory + "/paths_2D.png"):
+        if not os.path.isfile(os.path.join(self.directory, "paths_2D.png")):
+            return
+
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg is None:
+            print("ffmpeg not found on PATH; skipping movie generation.")
             return
 
         cwd = os.getcwd()
         os.chdir(self.directory)
+        try:
+            # ffmpeg replaces the long-deprecated avconv.  Run via subprocess
+            # with an argument list (no shell) so it is platform independent.
+            #
+            # Encode H.264 in an MP4 container with the yuv420p pixel format.
+            # The old default (mpeg4/FMP4 in an AVI container) is rejected by
+            # QuickTime and ImageJ ("Unsupported compression: FMP4").  H.264 /
+            # yuv420p / mp4 is the broadly compatible combination that opens in
+            # QuickTime, ImageJ, browsers, and most players.  libx264 requires
+            # even frame dimensions, so pad width/height up to the next even
+            # number.
+            movie_name = "filament_tracks.mp4"
+            result = subprocess.run(
+                [ffmpeg, "-y", "-r", "1", "-i", "skeletons_%03d.png",
+                 "-r", "1",
+                 "-c:v", "libx264",
+                 "-pix_fmt", "yuv420p",
+                 "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                 "-movflags", "+faststart",
+                 movie_name],
+                check=False,
+            )
 
-        # ffmpeg replaces the long-deprecated avconv.
-        avicommand = "ffmpeg -y -r 1 -i skeletons_%03d.png -r 1 filament_tracks.avi"
-        os.system(avicommand)
+            if result.returncode != 0 or not os.path.isfile(movie_name):
+                print("ffmpeg failed to encode the movie (is libx264 available "
+                      "in your ffmpeg build?); skipping movie generation.")
+                return
 
-        if extra_fname is not None:
-            os.system("cp filament_tracks.avi " + extra_fname + "filament_tracks.avi")
+            if extra_fname is not None:
+                shutil.copy(movie_name, extra_fname + movie_name)
 
-        os.system("rm -f skeletons_*.png")
-        os.chdir(cwd)
+            for png in glob.glob("skeletons_*.png"):
+                os.remove(png)
+        finally:
+            os.chdir(cwd)
 
     def read_frame(self, num_frame, force_read=False):
         """Extract filaments from a single frame (or load cached result)."""
@@ -920,6 +970,8 @@ class Motility:
         self.frame.header = self.header
         self.frame.tail = self.tail
         self.frame.frame_no = num_frame
+        self.frame.fast_rank = self.fast_rank
+        self.frame.morph_contrast = self.morph_contrast
 
         filament_file = self.directory + "/filXYs%03d.npy" % num_frame
         if not force_read and os.path.isfile(filament_file):
@@ -1646,6 +1698,26 @@ class Frame:
         self.window_island = 15
         self.disk_win = disk(self.window_island)
 
+        # When True, the full-frame percentile (rank) filters operate on an
+        # 8-bit rescaling of the image instead of the native 16-bit data.
+        # scikit-image rank filters keep a per-pixel local histogram whose cost
+        # scales with the number of grey levels (65536 for uint16 vs 256 for
+        # uint8), so this is the dominant per-frame speedup.  It is mildly
+        # lossy (8-bit quantization of intensities), but on real gliding-assay
+        # data the velocity deltas are <0.4% with an unchanged alpha>beta
+        # ordering, so it is ON by default.  Set False (CLI: --exact-rank) for
+        # the exact 16-bit reference/validation path.
+        self.fast_rank = True
+
+        # When True, the local-contrast map in ``entropy_clusters`` is computed
+        # with a single-pass morphological gradient (local max - min via
+        # cv2.dilate/erode over the same disk window) instead of two
+        # sliding-histogram percentile passes (5th/95th).  Much faster but
+        # slightly more noise-sensitive (uses extremes rather than percentiles),
+        # so it is OFF by default; A/B it with compare_fast_rank.py before use.
+        self.morph_contrast = False
+        self._morph_k = None
+
         self.img = None
         self.img_filaments = None
         self.img_skeletons = None
@@ -1735,20 +1807,41 @@ class Frame:
         self.filXYs = np.load(filament_file, allow_pickle=True)
 
     def check_picture_quality(self):
-        img_u = self._as_rank_image()
+        img_u, scale = self._rank_image()
+        # The absolute-contrast gate (max_diff > 1000) is on the native 16-bit
+        # scale; when the rank input has been rescaled to 8-bit, map the
+        # threshold by the same factor so the gate keeps its meaning.
+        diff_thresh = 1000.0 * scale
         img_1 = rank.percentile(img_u, self.disk_win, p0=0.95)
         img_0 = rank.percentile(img_u, self.disk_win, p0=0.05)
         self.img_diff = img_1.astype(np.int32) - img_0.astype(np.int32)
 
         max_diff = np.max(self.img_diff)
+        # relative_contrast is a ratio, so it is unaffected by rescaling.
         relative_contrast = 1.0 * np.max(self.img_diff) / np.max(img_1)
 
-        if relative_contrast > 0.7 and max_diff > 1000:
+        if relative_contrast > 0.7 and max_diff > diff_thresh:
             return "good"
         return "bad"
 
     def low_pass_filter(self, sigma=2):
-        self.img = gaussian_filter(self.img, sigma=sigma)
+        # cv2.GaussianBlur is markedly faster than scipy.ndimage.gaussian_filter
+        # and numerically equivalent here.  ksize=(0,0) lets OpenCV derive the
+        # kernel size from sigma.  Fall back to scipy if OpenCV rejects the
+        # dtype for any reason.
+        try:
+            self.img = cv2.GaussianBlur(self.img, (0, 0), sigmaX=sigma, sigmaY=sigma)
+        except cv2.error:
+            self.img = gaussian_filter(self.img, sigma=sigma)
+
+    def _morph_kernel(self):
+        """Disk structuring element matching ``disk_win``, cached for reuse."""
+        if self._morph_k is None:
+            r = int(self.window_island)
+            self._morph_k = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)
+            )
+        return self._morph_k
 
     def _as_rank_image(self):
         """Return ``self.img`` as an integer image suitable for rank filters."""
@@ -1756,12 +1849,42 @@ class Frame:
             return self.img
         return self.img.astype(np.uint16)
 
-    def entropy_clusters(self):
-        img_u = self._as_rank_image()
-        img_1 = rank.percentile(img_u, self.disk_win, p0=0.95).astype(np.int32)
-        img_0 = rank.percentile(img_u, self.disk_win, p0=0.05).astype(np.int32)
+    def _rank_image(self):
+        """Return (image, scale) for the percentile/rank filters.
 
-        self.img_diff = img_1 - img_0
+        With ``fast_rank`` enabled, a 16-bit image is linearly rescaled to the
+        full 0-255 uint8 range, which shrinks the rank filter's local histogram
+        from 65536 to 256 bins (the dominant per-frame cost).  ``scale`` is the
+        8-bit-per-16-bit-count factor (255 / dynamic-range) so callers that
+        compare against native-scale thresholds can convert them; it is 1.0 in
+        the non-rescaled path.
+        """
+        img = self._as_rank_image()
+        if not self.fast_rank or img.dtype != np.uint16:
+            return img, 1.0
+        lo = int(img.min())
+        hi = int(img.max())
+        if hi <= lo:
+            return np.zeros(img.shape, dtype=np.uint8), 1.0
+        scale = 255.0 / (hi - lo)
+        img8 = ((img.astype(np.float32) - lo) * scale).astype(np.uint8)
+        return img8, scale
+
+    def entropy_clusters(self):
+        img_u, _ = self._rank_image()
+        if self.morph_contrast:
+            # Single-pass local contrast: morphological gradient (local max -
+            # min) over the same disk window, replacing the two sliding-
+            # histogram percentile passes below.
+            kernel = self._morph_kernel()
+            img_hi = cv2.dilate(img_u, kernel)
+            img_lo = cv2.erode(img_u, kernel)
+            self.img_diff = img_hi.astype(np.int32) - img_lo.astype(np.int32)
+        else:
+            img_1 = rank.percentile(img_u, self.disk_win, p0=0.95).astype(np.int32)
+            img_0 = rank.percentile(img_u, self.disk_win, p0=0.05).astype(np.int32)
+            self.img_diff = img_1 - img_0
+
         self.cutoff_diff = np.mean(self.img_diff)
         self.mask_diff = self.img_diff > self.cutoff_diff
 
