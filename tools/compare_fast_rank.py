@@ -65,8 +65,8 @@ def run_mode(dataset_abs, run_dir, fast_rank, nprocs, verbose, morph_contrast=Fa
     os.chdir(run_dir)
     t0 = time.perf_counter()
     try:
-        from fastrack import pipeline
-        pipeline.run(
+        from fastrack.pipelines import gliding
+        gliding.run(
             main_dir=dataset_abs,
             force_analysis=True,   # never reuse cached filaments across modes
             fast_rank=fast_rank,

@@ -13,16 +13,38 @@ replaces two external dependencies:
   no external tool to install.
 - **Movie encoding:** `avconv` is replaced by `ffmpeg`.
 
-## What's included
+## Package structure
 
-| Module | Replaces | Purpose |
-|--------|----------|---------|
-| `fastrack/motility.py` | `FAST/motility.py` | Core image-processing + filament-tracking algorithm |
-| `fastrack/pipeline.py` | `bin/fast` | Analysis driver (directory walk, parallel frame extraction, linking, plots, combined stats) |
-| `fastrack/lima.py` | `bin/lima` | Loaded in-vitro motility assay (stop-model fit, force parameter `Ks`) |
-| `fastrack/stack2tifs.py` | `bin/stack2tifs` | TIFF-stack → micro-manager frame-file conversion |
-| `fastrack/cli.py` | argparse front-ends | Console entry points `fast`, `lima`, `stack2tifs` |
-| `fastrack/plotparams.py` | `FAST/plotparams.py` | Shared Matplotlib styling (headless Agg backend) |
+The code uses a `src/` layout and is organized into logical sub-packages, each
+module kept to a modest size:
+
+```
+src/fastrack/
+├── config.py            # layered Settings (hardware / analysis / plotting / runtime)
+├── datamodel.py         # FilamentRecord + cross-frame FilamentTable
+├── registry.py          # name->factory registry behind every pluggable seam
+├── motility.py          # back-compat shim (re-exports the old names)
+├── core/
+│   ├── frame.py island.py filament.py link.py   # image-processing objects
+│   ├── motility.py                              # per-movie analysis driver
+│   ├── detection/       # Detector interface + entropy/watershed implementation
+│   └── tracking/        # Linker interface + greedy (incl. legacy) implementation
+├── analysis/            # fitting, velocity metrics, geometry (pure numeric)
+├── io/                  # images, stores (npy), export (csv), movie (ffmpeg)
+├── viz/                 # plotparams + the length-velocity / 2D-path plots
+├── pipelines/           # gliding (the `fast` driver) and loaded (LIMA)
+└── cli/                 # console entry points: fast, lima, stack2tifs
+```
+
+Three things are pluggable via a registry + a `Settings` field, so new variants
+are added without touching call sites: **filament detection**
+(`core/detection`, e.g. a future low-SNR detector), **frame-to-frame tracking**
+(`core/tracking`), and **output** (`io/movie` writers, `io/stores` backends,
+`io/export` formats over the `FilamentTable`).  New analysis workflows are added
+as modules under `pipelines/`.  See "Extending" below.
+
+The original monolithic `fastrack.motility` import still works via a
+compatibility shim that re-exports the names from their new locations.
 
 ## Test data not included
 
@@ -100,8 +122,8 @@ uint16 vs 256 for uint8), so by default each frame is rescaled to 8-bit before
 those filters. On the example dataset this is ~1.8× faster with <0.4% velocity
 deltas and an unchanged α>β ordering. Pass `--exact-rank` for the reference
 16-bit path, e.g. when producing validation numbers. Profile both paths on your
-data with `profile_frame.py` (add `--fast-rank` to time the 8-bit path) and A/B
-the velocities with `compare_fast_rank.py`.
+data with `tools/profile_frame.py` (add `--fast-rank` to time the 8-bit path)
+and A/B the velocities with `tools/compare_fast_rank.py`.
 
 ### Recommended configurations
 
@@ -135,7 +157,7 @@ reused.
 The speed/accuracy trade-off of each optimization is `fast_rank` (≈1.8×, <0.4%
 deltas, nearly lossless), `--morph-contrast` (further speedup, ~1–1.5% deltas,
 more noise-sensitive), and `-j` (lossless, scales with cores). A/B any config
-against the exact path on your own data with `compare_fast_rank.py`
+against the exact path on your own data with `tools/compare_fast_rank.py`
 (add `--morph` to include the morphological-gradient path).
 
 To convert the original stacks to frame files first (if needed):
@@ -166,8 +188,41 @@ pip install -e .[test]
 pytest -q
 ```
 
-`tests/test_smoke.py` covers the pure-numeric helpers (Gaussian fitting,
-Uyeda length–velocity model, coupling-velocity fit, contour distance, binning).
+The suite has two tiers. The light unit tests need no image stack or dataset and
+run anywhere: `test_smoke.py` (pure-numeric helpers), `test_config.py` (layered
+settings), `test_registry.py` (the strategy registry + that the built-in
+detectors/linkers/writers/stores register), `test_datamodel.py`
+(`FilamentTable` + CSV export), and `test_tracking.py` (the greedy linker's
+corrected-vs-legacy partner recovery).
+
+`test_golden.py` is the **golden-master regression**: it re-runs the analysis on
+the example dataset with the exact (deterministic) settings and asserts the
+combined `MEAN_values.txt` / `SEM_values.txt` match the committed baseline in
+`tests/baseline/`. It auto-skips when the image dependencies, the example
+dataset, or the baseline are absent. Capture/refresh the baseline with
+`python tools/capture_baseline.py -d examples/unloaded_motility/micromanager_tifs`.
+
+## Extending
+
+Each variable part of the pipeline is a small interface plus a registry, with
+the current behaviour as the first registered implementation. To add a variant,
+write a class and register it; select it via the corresponding `Settings` field
+(`detection_algorithm`, `tracking_algorithm`, etc.) — no call sites change.
+
+- **Filament detector** (e.g. better low-SNR segmentation): subclass
+  `fastrack.core.detection.base.Detector`, implement `detect(frame)`, decorate
+  with `@DETECTORS.register("my_detector")`.
+- **Tracker**: subclass `fastrack.core.tracking.base.Linker`, implement
+  `link(frame1, frame2, dt, elapsed_times)`, register under `LINKERS`.
+- **Movie writer / store / export**: register under `MOVIE_WRITERS`
+  (`io/movie`), `STORES` (`io/stores`), or add an exporter in `io/export.py`
+  operating on a `FilamentTable`.
+- **New analysis pipeline**: add a module under `pipelines/` and register a
+  `Pipeline` subclass under `PIPELINES`.
+
+Settings compose from layers (`Settings.from_sources(*dict_layers)`) so hardware,
+analysis, and runtime config can live in separate files and be mixed; a TOML
+loader (`Settings.from_toml`, Python 3.11+) is the thin adapter on top.
 
 ## Notes / things to review
 

@@ -1,14 +1,13 @@
-"""stack2tifs: convert TIFF stacks into micro-manager individual frame files.
+"""Batch TIFF-stack -> micro-manager frame-file conversion.
 
-Modernized Python 3 port of ``bin/stack2tifs``.  Walks a directory tree and runs
-:func:`fastrack.motility.stack_to_tiffs` on every ``.tif`` stack above a minimum
-size threshold.
+Walks a directory tree and runs :func:`fastrack.io.images.stack_to_tiffs` on
+every ``.tif`` stack above a minimum size threshold.  (Port of ``bin/stack2tifs``.)
 """
 import os
 import sys
 import warnings
 
-from . import motility
+from .images import stack_to_tiffs
 
 warnings.filterwarnings("ignore")
 
@@ -21,4 +20,4 @@ def run(main_dir, min_size=6.0, frame_rate=1.0):
         for f in files:
             path = os.path.join(root, f)
             if os.path.splitext(f)[1] == ".tif" and os.path.getsize(path) * 1e-6 > min_size:
-                motility.stack_to_tiffs(path, frame_rate)
+                stack_to_tiffs(path, frame_rate)

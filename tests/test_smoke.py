@@ -67,10 +67,13 @@ def test_vec_length():
 
 
 def test_bin_length_velocity():
-    length = np.array([10.0, 20.0, 110.0, 120.0])
-    velocity = np.array([1.0, 3.0, 10.0, 20.0])
+    # bin_length_velocity only emits bins up to int(max_len/dx); the top partial
+    # bin is dropped (verbatim original behavior).  Include a point in a third
+    # bin so the (0,100] and (100,200] bins are both fully formed.
+    length = np.array([10.0, 20.0, 110.0, 120.0, 210.0])
+    velocity = np.array([1.0, 3.0, 10.0, 20.0, 99.0])
     binned = m.bin_length_velocity(length, velocity, dx=100)
-    # two bins: (0,100] and (100,200]
+    # two bins: (0,100] and (100,200]; the (200,300] point is dropped
     assert binned.shape == (2, 2)
     assert binned[0, 1] == pytest.approx(2.0)   # mean of 1,3
     assert binned[1, 1] == pytest.approx(15.0)  # mean of 10,20

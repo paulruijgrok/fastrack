@@ -62,8 +62,8 @@ def run_mode(dataset_abs, run_dir, legacy, nprocs, verbose):
     cwd = os.getcwd()
     os.chdir(run_dir)
     try:
-        from fastrack import pipeline
-        pipeline.run(
+        from fastrack.pipelines import gliding
+        gliding.run(
             main_dir=dataset_abs,
             force_analysis=True,
             legacy_linking=legacy,

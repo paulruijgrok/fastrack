@@ -57,8 +57,8 @@ def fast_main(argv=None):
     parser.add_argument("-v", action="store_true", default=False, help="verbose output for debugging")
     args = parser.parse_args(argv)
 
-    from . import pipeline
-    pipeline.run(
+    from ..pipelines import gliding
+    gliding.run(
         main_dir=args.d,
         force_analysis=args.f,
         recalculate=args.r,
@@ -106,8 +106,8 @@ def lima_main(argv=None):
     parser.add_argument("-cl", nargs="*", default=None, type=str, help="plotting colors")
     args = parser.parse_args(argv)
 
-    from . import lima
-    lima.run(
+    from ..pipelines import loaded
+    loaded.run(
         main_dir=args.d,
         min_load_analysis=args.amin,
         max_load_analysis=args.amax,
@@ -136,5 +136,5 @@ def stack2tifs_main(argv=None):
     parser.add_argument("-f", default=1, type=float, help="frame rate for the movies (Default:1)")
     args = parser.parse_args(argv)
 
-    from . import stack2tifs
-    stack2tifs.run(main_dir=args.d, min_size=args.s, frame_rate=args.f)
+    from ..io import convert
+    convert.run(main_dir=args.d, min_size=args.s, frame_rate=args.f)

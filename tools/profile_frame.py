@@ -23,7 +23,7 @@ import time
 
 import numpy as np
 
-from fastrack.motility import Frame
+from fastrack.core.frame import Frame
 
 
 def autodetect(directory):

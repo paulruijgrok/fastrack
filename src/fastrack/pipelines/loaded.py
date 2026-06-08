@@ -15,7 +15,7 @@ import sys
 import numpy as np
 from scipy import optimize
 
-from . import plotparams  # noqa: F401  (sets rcParams + Agg backend)
+from ..viz import plotparams  # noqa: F401  (sets rcParams + Agg backend)
 import matplotlib.pyplot as py
 
 

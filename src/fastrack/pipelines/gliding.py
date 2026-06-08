@@ -16,7 +16,8 @@ from multiprocessing import Pool, cpu_count
 
 import numpy as np
 
-from . import motility
+from ..core.frame import Frame
+from ..core.motility import Motility
 
 warnings.filterwarnings("ignore")
 
@@ -32,13 +33,15 @@ def _extract_frame(task):
     given the directory directly, matching how the original per-folder script
     set ``new_Motility.directory``.
     """
-    directory, header, tail, frame_no, force, fast_rank, morph_contrast = task
-    m = motility.Motility()
+    (directory, header, tail, frame_no, force, fast_rank, morph_contrast,
+     detection_algorithm) = task
+    m = Motility()
     m.directory = directory
     m.header = header
     m.tail = tail
     m.fast_rank = fast_rank
     m.morph_contrast = morph_contrast
+    m.detection_algorithm = detection_algorithm
     try:
         m.read_frame(float(frame_no), force)
         m.save_frame()
@@ -79,6 +82,8 @@ def run(
     legacy_linking=False,
     fast_rank=True,
     morph_contrast=False,
+    detection_algorithm="entropy",
+    tracking_algorithm="greedy",
     nprocs=None,
     verbose=False,
 ):
@@ -225,7 +230,7 @@ def run(
         for final_folder in process_folders[top_root]:
             root = os.path.join(top_root, final_folder)
 
-            new_Frame = motility.Frame()
+            new_Frame = Frame()
             new_Frame.directory = final_folder
             new_Frame.header = "img_000000"
             new_Frame.tail = tail_tif
@@ -278,7 +283,7 @@ def run(
             # ----- parallel per-frame filament extraction ----------------- #
             tasks = [
                 (final_folder, "img_000000", tail_tif, no, force_analysis,
-                 fast_rank, morph_contrast)
+                 fast_rank, morph_contrast, detection_algorithm)
                 for no in frame_nos
             ]
             if nprocs > 1 and len(tasks) > 1:
@@ -303,7 +308,7 @@ def run(
                     continue
 
             # ----- build / load frame links ------------------------------- #
-            new_motility = motility.Motility()
+            new_motility = Motility()
             new_motility.dx = 1.0 * pixel_size
             new_motility.max_velocity = 1.0 * max_velocity / pixel_size
             new_motility.num_frames = number_of_frames
@@ -318,6 +323,8 @@ def run(
             new_motility.legacy_linking = legacy_linking
             new_motility.fast_rank = fast_rank
             new_motility.morph_contrast = morph_contrast
+            new_motility.detection_algorithm = detection_algorithm
+            new_motility.tracking_algorithm = tracking_algorithm
 
             if not new_motility.read_frame_links():
                 new_motility.load_frame1(0)
@@ -377,7 +384,7 @@ def run(
         combined_full_len_vel = np.vstack(combined_full_len_vel)
         combined_max_len_vel = np.vstack(combined_max_len_vel)
 
-        combined_motility = motility.Motility()
+        combined_motility = Motility()
         combined_motility.directory = os.path.join("outputs", main_out_dir, "combined")
         combined_motility.full_len_vel = combined_full_len_vel
         combined_motility.max_len_vel = combined_max_len_vel
@@ -430,3 +437,17 @@ def run(
 
     m_stats.close()
     s_stats.close()
+
+
+# --------------------------------------------------------------------------- #
+# Pipeline adapter (Settings-based entry point)
+# --------------------------------------------------------------------------- #
+from .base import PIPELINES, Pipeline  # noqa: E402
+
+
+@PIPELINES.register("gliding")
+class GlidingPipeline(Pipeline):
+    """Unloaded gliding-assay analysis (the original ``fast`` driver)."""
+
+    def run(self, main_dir, settings):
+        return run(main_dir=main_dir, **settings.to_run_kwargs())
