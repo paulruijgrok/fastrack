@@ -28,6 +28,12 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.0"]
+# Optional ridge-detection filament detector (fast -d <dir> --detector ridge).
+# The upstream ridge-detector imports numba (`from numba import jit`) but does
+# NOT declare it as a dependency, so we add numba explicitly here.  numba (with
+# llvmlite/LLVM) is the only heavy addition -- which is exactly why this detector
+# is opt-in and kept out of the default install.
+ridge = ["ridge-detector>=0.1.3", "numba>=0.59"]
 
 [project.scripts]
 fast = "fastrack.cli:fast_main"

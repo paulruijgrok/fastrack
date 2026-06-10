@@ -1,0 +1,52 @@
+# Example FASTrack configuration.
+#
+#   fast -d examples/unloaded_motility/micromanager_tifs --config config.example.toml
+#
+# Every section and key is optional — only the keys you set are applied; the
+# rest keep their defaults. Any explicit CLI flag overrides the value here, and
+# multiple --config files layer left-to-right. Requires Python 3.11+ (tomllib).
+
+[hardware]
+pixel_size_nm = 80.65                 # camera pixel size (nm)
+max_inter_frame_distance_nm = 2016.25 # linking gate: max travel between frames (nm)
+
+[analysis]
+num_frames_ave = 5
+min_path_length = 5
+percent_tolerance = 500
+stuck_velocity_nm_s = 80.0            # avg path velocity below this -> "stuck"
+overlap_score_cutoff = 0.4
+log_area_score_cutoff = 1.0
+diff_log_area_score_cutoff = 0.5
+fit_function = "none"                 # none | exp | uyeda
+detection_algorithm = "entropy"       # entropy | ridge (ridge needs fastrack[ridge])
+tracking_algorithm = "greedy"
+legacy_linking = false
+fast_rank = true
+morph_contrast = false
+
+[plotting]
+ymax = 1500
+xmax = 10000
+maxvel_color = "b"
+
+[runtime]
+make_movie = false
+overlay_movie = true
+# nprocs = 8                          # default: all cores
+
+[ridge]                               # used only when detection_algorithm = "ridge"
+line_widths = [3]
+low_contrast = 50.0
+high_contrast = 150.0
+min_len = 10.0
+max_len = 0.0                         # 0 = no upper limit
+dark_line = false                     # false = bright filaments on dark background
+estimate_width = true
+
+[overlay]                             # styling for the --overlay-movie output
+fps = 10.0
+frame_label = true                    # frame number, bottom-left
+time_label = true                     # mm:ss, bottom-right
+frame_interval_s = 1.0                # seconds/frame when no acquisition metadata
+font_scale = 0.6

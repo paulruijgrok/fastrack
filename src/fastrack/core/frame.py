@@ -69,6 +69,11 @@ class Frame:
         self.header = ""
         self.tail = ""
 
+        # Suffix for the cached filXYs filename, so different detectors don't
+        # share a cache in the same movie folder ("" for the default entropy
+        # detector keeps the original filXYs%03d.npy names unchanged).
+        self.cache_tag = ""
+
         self.filament_counter = 0
 
     def reset_filament_labels(self):
@@ -134,11 +139,11 @@ class Frame:
             filament.correlation_function()
 
     def save_filXYs(self):
-        filament_file = self.directory + "/filXYs%03d" % self.frame_no
+        filament_file = self.directory + "/filXYs%s%03d" % (self.cache_tag, self.frame_no)
         np.save(filament_file, np.array(self.filXYs, dtype=object))
 
     def read_filXYs(self):
-        filament_file = self.directory + "/filXYs%03d.npy" % self.frame_no
+        filament_file = self.directory + "/filXYs%s%03d.npy" % (self.cache_tag, self.frame_no)
         self.filXYs = np.load(filament_file, allow_pickle=True)
 
     def check_picture_quality(self):

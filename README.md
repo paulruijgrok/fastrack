@@ -80,17 +80,61 @@ This installs the runtime dependencies (numpy, scipy, scikit-image,
 opencv-python, matplotlib, imageio, pillow) and the three command-line tools
 `fast`, `lima`, and `stack2tifs`.
 
+### Optional: ridge-detection filament detector
+
+An alternative filament detector based on ridge detection (Steger's algorithm,
+via the [`ridge-detector`](https://github.com/lxfhfut/ridge-detector) package) is
+available as an opt-in extra. It is **not** installed by default:
+
+```bash
+pip install -e '.[ridge]'
+```
+
+Then select it with `fast -d <dir> --detector ridge` (tune with `--ridge-*`
+flags: `--ridge-line-widths`, `--ridge-low-contrast`, `--ridge-high-contrast`,
+`--ridge-min-len`, `--ridge-dark-line`). Ridge results are written to their own
+output tree (`...__det_ridge/`) and use a separate per-frame cache, so they never
+collide with the default entropy detector. Compare the two detectors (runtime +
+velocities) in one command with `python tools/compare_detectors.py -d <dataset>`.
+The ridge extra pulls in
+`ridge-detector` **and `numba`** (the upstream package imports numba but doesn't
+declare it). numba (with LLVM) is the one heavy addition, which is why the
+default `pip install -e .` leaves it out.
+
 Movie generation (`fast -m`) additionally needs **ffmpeg** on your `PATH`:
 
 - macOS: `brew install ffmpeg`
 - Debian/Ubuntu: `sudo apt install ffmpeg`
 - Windows: `winget install ffmpeg` (or `choco install ffmpeg`)
 
-The movie is written as H.264 in an MP4 container (`filament_tracks.mp4`),
-which opens directly in QuickTime, ImageJ, browsers, and most players. If
-ffmpeg is not found, analysis still runs — only the optional tracking movie
-is skipped, with a notice. Skeleton/path image compositing is done in pure
-Python (Pillow), so no ImageMagick install is required on any platform.
+`fast --overlay-movie` produces a second movie, `overlay_tracks.mp4`: each
+original frame with its tracked filaments drawn on top, colored **green
+(moving)** vs **red (stuck)**. It's the quickest way to see what a detector is
+actually tracking and which filaments it classifies as stuck — run it for two
+detectors (`--detector entropy` vs `--detector ridge`) and compare the overlays
+side by side. `-m` and `--overlay-movie` are independent; both need ffmpeg.
+
+Both movies share the same styling options (config section `[overlay]`):
+`--overlay-fps` sets playback speed (default 10),
+`--frame-label/--no-frame-label` toggles the frame number (bottom-left,
+right-aligned so it stays steady), and `--time-label/--no-time-label` toggles an
+`mm:ss` clock (bottom-right). The time comes from the acquisition metadata
+(`ElapsedTime-ms`) when present, otherwise from `--frame-interval` seconds per
+frame. These apply to **both** the `-m` skeleton movie and the
+`--overlay-movie`; labels are on by default. Example:
+
+```bash
+fast -d <dataset> --detector ridge --overlay-movie --overlay-fps 24 --frame-interval 0.1
+```
+
+Both movies are written as H.264 in an MP4 container (`filament_tracks.mp4` and
+`overlay_tracks.mp4`), which open directly in QuickTime, ImageJ, browsers, and
+most players. They are saved **only in the `outputs/` tree** alongside the other
+results (the raw data folders are left untouched); the per-frame PNGs are
+intermediate and removed after encoding. If ffmpeg is not found, analysis still
+runs — only the optional tracking movie is skipped, with a notice. Skeleton/path
+image compositing is done in pure Python (Pillow), so no ImageMagick install is
+required on any platform.
 
 ## Run on the test dataset
 
@@ -114,6 +158,23 @@ percentile filters instead of the default 8-bit fast path — slower but exact),
 `--morph-contrast` (one-pass morphological-gradient contrast instead of two
 percentile passes — faster but noise-sensitive; off by default, A/B it),
 `-v` (verbose).
+
+### Config files
+
+For runs with many non-default options (especially the overlay-movie styling),
+specifying everything on the command line is impractical. Pass one or more TOML
+files with `--config`; any explicit CLI flag overrides the file, and multiple
+files layer left-to-right (later wins):
+
+```bash
+fast -d <dataset> --config config.example.toml            # all settings from file
+fast -d <dataset> --config base.toml --overlay-fps 24     # file + CLI override
+```
+
+A fully-commented `config.example.toml` at the repo root lists every section
+(`[hardware]`, `[analysis]`, `[plotting]`, `[runtime]`, `[ridge]`, `[overlay]`)
+and key. Only the keys you set are applied; the rest keep their defaults. TOML
+config requires Python 3.11+.
 
 The dominant per-frame cost is the two radius-15 local percentile filters in
 `entropy_clusters` (and `check_picture_quality`). scikit-image rank filters keep
