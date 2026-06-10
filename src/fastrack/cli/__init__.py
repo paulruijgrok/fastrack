@@ -10,6 +10,31 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
+#: Maps ``fast`` argparse dests to flat Settings field names (unique across
+#: sections).  Only flags the user explicitly passes appear in the namespace
+#: (every flag defaults to argparse.SUPPRESS), so this is the override layer on
+#: top of any --config file.
+_CLI_TO_FIELD = {
+    "f": "force_analysis", "r": "recalculate", "m": "make_movie",
+    "overlay_movie": "overlay_movie",
+    "p": "min_path_length", "n": "num_frames_ave", "pt": "percent_tolerance",
+    "px": "pixel_size_nm", "ymax": "ymax", "xmax": "xmax", "cl": "maxvel_color",
+    "fx": "fit_function", "maxd": "max_inter_frame_distance_nm",
+    "minv": "stuck_velocity_nm_s", "oscore": "overlap_score_cutoff",
+    "lascore": "log_area_score_cutoff", "dlascore": "diff_log_area_score_cutoff",
+    "legacy_linking": "legacy_linking", "fast_rank": "fast_rank",
+    "morph_contrast": "morph_contrast", "detector": "detection_algorithm",
+    "j": "nprocs", "v": "verbose",
+    "ridge_line_widths": "line_widths", "ridge_low_contrast": "low_contrast",
+    "ridge_high_contrast": "high_contrast", "ridge_min_len": "min_len",
+    "ridge_max_len": "max_len", "ridge_dark_line": "dark_line",
+    "ridge_estimate_width": "estimate_width",
+    "overlay_fps": "fps", "overlay_frame_label": "frame_label",
+    "overlay_time_label": "time_label", "overlay_frame_interval": "frame_interval_s",
+    "overlay_font_scale": "font_scale",
+}
+
+
 # --------------------------------------------------------------------------- #
 # fast
 # --------------------------------------------------------------------------- #
@@ -23,65 +48,78 @@ def fast_main(argv=None):
         "FAST provides fast and accurate analysis of actin gliding assay movies.",
         "-" * 72,
     ])
+    # Every analysis/overlay flag defaults to SUPPRESS so that only flags the
+    # user *explicitly* passes appear in the namespace.  That lets a --config
+    # TOML provide the base values and CLI flags override just what they set.
+    S = argparse.SUPPRESS
     parser = argparse.ArgumentParser(description="", usage=usage)
     parser.add_argument("-d", help="top directory of the movies to be analyzed")
-    parser.add_argument("-f", action="store_true", default=False, help="force analyze all the movies")
-    parser.add_argument("-r", action="store_true", default=False, help="recalculate instantaneous velocities from saved filament files")
-    parser.add_argument("-m", action="store_true", default=False, help="make filament tracking movie")
-    parser.add_argument("-p", default=5, type=int, help="minimum length for the paths to be analyzed (Default:5)")
-    parser.add_argument("-n", default=5, type=int, help="number of consecutive frames for averaging (Default:5)")
-    parser.add_argument("-pt", default=500, type=int, help="percent tolerance (Default:none)")
-    parser.add_argument("-px", default=80.65, type=float, help="pixel size in nm (Default:80.65 nm)")
-    parser.add_argument("-ymax", default=1500, type=int, help="maximum velocity for the plot in nm/s (Default:1500)")
-    parser.add_argument("-xmax", default=10000, type=int, help="maximum length for the plot in nm (Default:10000)")
-    parser.add_argument("-cl", default="b", type=str, help="color for maximum velocity points (Default:blue)")
-    parser.add_argument("-fx", default="none", choices=["none", "exp", "uyeda"], type=str, help="function to be fitted to maximum velocity data")
-    parser.add_argument("-maxd", default=2016.25, type=float, help="maximum allowed distance in nm between adjacent frames for a filament (Default:2016.25 nm)")
-    parser.add_argument("-minv", default=80, type=float, help="minimum average path velocity for a filament to be classified as stuck (Default:80 nm/s)")
-    parser.add_argument("-oscore", default=0.4, type=float, help="overlap score cutoff (advanced, Default:0.4)")
-    parser.add_argument("-lascore", default=1.0, type=float, help="log-area score cutoff (advanced, Default:1.0)")
-    parser.add_argument("-dlascore", default=0.5, type=float, help="difference-log-area score cutoff (advanced, Default:0.5)")
-    parser.add_argument("-j", default=None, type=int, help="number of parallel worker processes (Default: cpu_count-1)")
-    parser.add_argument("--legacy-linking", action="store_true", default=False,
-                        help="reproduce the original Python 2 frame-linking behaviour (leftover-loop-variable "
-                             "partner selection) for bit-for-bit reproduction of published results")
+    parser.add_argument("--config", nargs="*", default=[], metavar="FILE.toml",
+                        help="TOML config file(s) providing defaults; later files and explicit "
+                             "CLI flags override earlier ones (requires Python 3.11+)")
+    parser.add_argument("-f", action="store_true", default=S, help="force analyze all the movies")
+    parser.add_argument("-r", action="store_true", default=S, help="recalculate instantaneous velocities from saved filament files")
+    parser.add_argument("-m", action="store_true", default=S, help="make filament tracking movie")
+    parser.add_argument("--overlay-movie", action="store_true", default=S,
+                        help="make an overlay movie: original frames with tracked filaments drawn "
+                             "on top, colored green (moving) / red (stuck). Produces overlay_tracks.mp4")
+    parser.add_argument("-p", default=S, type=int, help="minimum length for the paths to be analyzed (Default:5)")
+    parser.add_argument("-n", default=S, type=int, help="number of consecutive frames for averaging (Default:5)")
+    parser.add_argument("-pt", default=S, type=int, help="percent tolerance (Default:none)")
+    parser.add_argument("-px", default=S, type=float, help="pixel size in nm (Default:80.65 nm)")
+    parser.add_argument("-ymax", default=S, type=int, help="maximum velocity for the plot in nm/s (Default:1500)")
+    parser.add_argument("-xmax", default=S, type=int, help="maximum length for the plot in nm (Default:10000)")
+    parser.add_argument("-cl", default=S, type=str, help="color for maximum velocity points (Default:blue)")
+    parser.add_argument("-fx", default=S, choices=["none", "exp", "uyeda"], type=str, help="function to be fitted to maximum velocity data")
+    parser.add_argument("-maxd", default=S, type=float, help="maximum allowed distance in nm between adjacent frames for a filament (Default:2016.25 nm)")
+    parser.add_argument("-minv", default=S, type=float, help="minimum average path velocity for a filament to be classified as stuck (Default:80 nm/s)")
+    parser.add_argument("-oscore", default=S, type=float, help="overlap score cutoff (advanced, Default:0.4)")
+    parser.add_argument("-lascore", default=S, type=float, help="log-area score cutoff (advanced, Default:1.0)")
+    parser.add_argument("-dlascore", default=S, type=float, help="difference-log-area score cutoff (advanced, Default:0.5)")
+    parser.add_argument("-j", default=S, type=int, help="number of parallel worker processes (Default: all cores)")
+    parser.add_argument("--legacy-linking", action="store_true", default=S,
+                        help="reproduce the original Python 2 frame-linking behaviour")
     parser.add_argument("--exact-rank", "--no-fast-rank", dest="fast_rank",
-                        action="store_false", default=True,
-                        help="run the full-frame percentile filters on the native 16-bit data "
-                             "instead of the default 8-bit rescaling. Slower but exact; use this "
-                             "for the reference/validation path. (Default: fast 8-bit rank filters.)")
-    parser.add_argument("--morph-contrast", action="store_true", default=False,
-                        help="compute the local-contrast map with a one-pass morphological gradient "
-                             "(local max-min) instead of two percentile passes. Faster but more "
-                             "noise-sensitive; off by default, A/B with compare_fast_rank.py")
-    parser.add_argument("-v", action="store_true", default=False, help="verbose output for debugging")
+                        action="store_false", default=S,
+                        help="use the exact 16-bit percentile filters instead of the default 8-bit path")
+    parser.add_argument("--morph-contrast", action="store_true", default=S,
+                        help="one-pass morphological-gradient contrast instead of two percentile passes")
+    parser.add_argument("--detector", default=S, choices=["entropy", "ridge"], dest="detector",
+                        help="filament detection algorithm (Default: entropy). 'ridge' requires "
+                             "the optional dependency: pip install 'fastrack[ridge]'")
+    # Ridge-detector parameters (used only with --detector ridge).
+    parser.add_argument("--ridge-line-widths", nargs="*", type=int, default=S, dest="ridge_line_widths")
+    parser.add_argument("--ridge-low-contrast", type=float, default=S, dest="ridge_low_contrast")
+    parser.add_argument("--ridge-high-contrast", type=float, default=S, dest="ridge_high_contrast")
+    parser.add_argument("--ridge-min-len", type=float, default=S, dest="ridge_min_len")
+    parser.add_argument("--ridge-max-len", type=float, default=S, dest="ridge_max_len")
+    parser.add_argument("--ridge-dark-line", action="store_true", default=S, dest="ridge_dark_line")
+    parser.add_argument("--ridge-no-width", dest="ridge_estimate_width", action="store_false", default=S)
+    # Overlay-movie styling.
+    parser.add_argument("--overlay-fps", type=float, default=S, dest="overlay_fps",
+                        help="overlay movie playback frame rate (Default:10)")
+    parser.add_argument("--frame-label", action=argparse.BooleanOptionalAction, default=S,
+                        dest="overlay_frame_label", help="show frame number on overlay (bottom-left)")
+    parser.add_argument("--time-label", action=argparse.BooleanOptionalAction, default=S,
+                        dest="overlay_time_label", help="show mm:ss time on overlay (bottom-right)")
+    parser.add_argument("--frame-interval", type=float, default=S, dest="overlay_frame_interval",
+                        help="seconds per frame for the time label when no metadata (Default:1.0)")
+    parser.add_argument("--overlay-font-scale", type=float, default=S, dest="overlay_font_scale",
+                        help="overlay label font scale (Default:0.6)")
+    parser.add_argument("-v", action="store_true", default=S, help="verbose output for debugging")
     args = parser.parse_args(argv)
 
+    from ..config import Settings
+
+    # Base settings from config file(s), then override with explicitly-passed flags.
+    settings = Settings.from_toml(*args.config) if args.config else Settings()
+
+    overrides = {_CLI_TO_FIELD[dest]: val for dest, val in vars(args).items()
+                 if dest in _CLI_TO_FIELD}
+    settings = settings.with_overrides(**overrides)
+
     from ..pipelines import gliding
-    gliding.run(
-        main_dir=args.d,
-        force_analysis=args.f,
-        recalculate=args.r,
-        make_movie=args.m,
-        min_path_length=args.p,
-        num_frames_ave=args.n,
-        percent_tolerance=args.pt,
-        pixel_size=args.px,
-        plot_ymax=args.ymax,
-        plot_xmax=args.xmax,
-        maxvel_color=args.cl,
-        fit_function=args.fx,
-        max_velocity=args.maxd,
-        min_velocity=args.minv,
-        overlap_score_cutoff=args.oscore,
-        log_area_score_cutoff=args.lascore,
-        diff_log_area_score_cutoff=args.dlascore,
-        legacy_linking=args.legacy_linking,
-        fast_rank=args.fast_rank,
-        morph_contrast=args.morph_contrast,
-        nprocs=args.j,
-        verbose=args.v,
-    )
+    gliding.run(main_dir=args.d, **settings.to_run_kwargs())
 
 
 # --------------------------------------------------------------------------- #

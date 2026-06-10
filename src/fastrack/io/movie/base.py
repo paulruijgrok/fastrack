@@ -17,10 +17,15 @@ class MovieWriter(ABC):
     """Assembles per-frame images in ``directory`` into a movie."""
 
     @abstractmethod
-    def write(self, directory, extra_fname=None):
-        """Write the movie for the frames in ``directory``.
+    def write(self, directory, extra_fname=None,
+              input_pattern="skeletons_%03d.png", output_name="filament_tracks.mp4",
+              fps=1):
+        """Encode the ``input_pattern`` image sequence in ``directory`` to a movie.
 
         ``extra_fname`` is an optional prefix for an additional copy placed
         alongside the length-velocity outputs (matching the original API).
+        ``input_pattern`` / ``output_name`` default to the per-frame skeleton
+        sequence and the standard tracking movie, so existing callers are
+        unchanged; the overlay movie passes its own pattern/name.
         """
         raise NotImplementedError

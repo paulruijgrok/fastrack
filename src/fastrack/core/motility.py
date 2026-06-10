@@ -13,6 +13,7 @@ The numerical behaviour is unchanged from the original ``motility.py``.
 import os
 import re
 
+import cv2
 import numpy as np
 from numpy import ma
 
@@ -106,14 +107,26 @@ class Motility(MotilityPlots):
         self.tracking_algorithm = "greedy"
         self.movie_format = "ffmpeg_h264"
 
+        # Extra keyword arguments for non-entropy detectors (e.g. ridge params).
+        self.detection_params = {}
+        # Suffix for cached filXYs files so detectors don't share a cache
+        # ("" for entropy keeps the original filenames).
+        self.cache_tag = ""
+
     # ----- pluggable strategy factories ----------------------------------- #
     def get_detector(self):
-        """Build the configured filament detector from the current settings."""
-        return DETECTORS.create(
-            self.detection_algorithm,
-            fast_rank=self.fast_rank,
-            morph_contrast=self.morph_contrast,
-        )
+        """Build the configured filament detector from the current settings.
+
+        The entropy detector takes the fast_rank / morph_contrast options;
+        other detectors (e.g. ridge) receive ``detection_params``.
+        """
+        if self.detection_algorithm == "entropy":
+            return DETECTORS.create(
+                "entropy",
+                fast_rank=self.fast_rank,
+                morph_contrast=self.morph_contrast,
+            )
+        return DETECTORS.create(self.detection_algorithm, **self.detection_params)
 
     def get_linker(self):
         """Build the configured frame-to-frame linker from the current settings.
@@ -277,10 +290,11 @@ class Motility(MotilityPlots):
 
     def read_frame_links(self):
         """Read frame links saved as a pickled .npy object array."""
-        if not self.force_analysis and os.path.exists(self.directory + "/links.npy"):
+        links_file = self.directory + "/links%s.npy" % self.cache_tag
+        if not self.force_analysis and os.path.exists(links_file):
             try:
                 self.frame_links = list(
-                    np.load(self.directory + "/links.npy", allow_pickle=True)
+                    np.load(links_file, allow_pickle=True)
                 )
             except (ImportError, ModuleNotFoundError, AttributeError):
                 print(
@@ -291,9 +305,17 @@ class Motility(MotilityPlots):
             return True
         return False
 
-    def reconstruct_skeleton_images(self):
+    def reconstruct_skeleton_images(self, frame_label=False, time_label=False,
+                                    frame_interval_s=1.0, font_scale=0.6):
         if not os.path.isfile(self.directory + "/paths_2D.png"):
             return
+
+        # Prefer acquisition metadata for the time label; load it if needed.
+        if time_label and len(self.elapsed_times) == 0:
+            try:
+                self.read_metadata()
+            except Exception:
+                pass
 
         ratio = self.width / 1002.0
 
@@ -337,6 +359,27 @@ class Motility(MotilityPlots):
             ax = py.gca()
             ax.xaxis.set_visible(False)
             ax.yaxis.set_visible(False)
+
+            if frame_label or time_label:
+                links_i = self.frame_links[i]
+                fno = int(links_i[0].frame1_no) if len(links_i) else i
+                fig = py.gcf()
+                label_fs = 9.0 * (font_scale / 0.6)
+                box = dict(facecolor="black", edgecolor="none", pad=1.5, alpha=0.6)
+                # monospace + right-alignment keeps the digits steady frame-to-frame.
+                if frame_label:
+                    fig.text(0.13, 0.015, str(fno), ha="right", va="bottom",
+                             fontsize=label_fs, color="white", family="monospace", bbox=box)
+                if time_label:
+                    if fno < len(self.elapsed_times):
+                        t = float(self.elapsed_times[fno])
+                    else:
+                        t = fno * float(frame_interval_s)
+                    mm, ss = int(t // 60), int(round(t % 60))
+                    if ss == 60:
+                        mm, ss = mm + 1, 0
+                    fig.text(0.985, 0.015, "%02d:%02d" % (mm, ss), ha="right", va="bottom",
+                             fontsize=label_fs, color="white", family="monospace", bbox=box)
 
             skeleton_fname = os.path.join(self.directory, "skeletons_%03d.png" % (i))
             paths_fname = os.path.join(self.directory, "paths_2D.png")
@@ -470,12 +513,130 @@ class Motility(MotilityPlots):
         self.create_paths()
         self.path_velocities(num_points)
 
-    def make_movie(self, extra_fname=None):
+    def make_movie(self, extra_fname=None, fps=1):
         """Assemble per-frame skeleton PNGs into a tracking movie.
 
         Delegated to the configured movie writer (default: H.264/MP4 via ffmpeg).
         """
-        MOVIE_WRITERS.create(self.movie_format).write(self.directory, extra_fname)
+        MOVIE_WRITERS.create(self.movie_format).write(self.directory, extra_fname, fps=fps)
+
+    @staticmethod
+    def _to_uint8_bgr(img):
+        """Linearly rescale a (possibly 16-bit) grayscale image to an 8-bit BGR image."""
+        a = np.asarray(img).astype(np.float32)
+        lo, hi = float(a.min()), float(a.max())
+        if hi > lo:
+            a = (a - lo) * (255.0 / (hi - lo))
+        gray8 = a.astype(np.uint8)
+        return cv2.cvtColor(gray8, cv2.COLOR_GRAY2BGR)
+
+    @staticmethod
+    def _draw_label(img, text, org, font, scale, thick, color=(255, 255, 255)):
+        """Draw text with a thin black outline so it's legible on any background."""
+        cv2.putText(img, text, org, font, scale, (0, 0, 0), thick + 2, cv2.LINE_AA)
+        cv2.putText(img, text, org, font, scale, color, thick, cv2.LINE_AA)
+
+    def make_overlay_movie(self, extra_fname=None, fps=10.0, frame_label=True,
+                           time_label=True, frame_interval_s=1.0, font_scale=0.6):
+        """Render an overlay movie: each original frame with its tracked
+        filaments drawn on top, colored by whether the path is stuck.
+
+        Moving filaments are green, stuck filaments red.  Optional labels show
+        the frame number (bottom-left, right-aligned so it stays steady) and the
+        elapsed time in mm:ss (bottom-right).  The time comes from the
+        acquisition metadata (ElapsedTime-ms) when available, else from
+        ``frame_interval_s``.  Produces ``overlay_tracks.mp4`` at ``fps``.
+        Requires that ``process_frame_links`` has already built ``self.paths``.
+        """
+        if not self.paths:
+            return
+
+        # Collect, per frame number, the filament contours to draw and whether
+        # each belongs to a stuck path.  A link connects a filament in frame1_no
+        # to its partner in frame2_no, so contribute both endpoints.
+        per_frame = {}
+        for path in self.paths:
+            stuck = bool(getattr(path, "stuck", False))
+            for link in path.links:
+                for fno, contour in (
+                    (int(link.frame1_no), link.filament1_contour),
+                    (int(link.frame2_no), link.filament2_contour),
+                ):
+                    per_frame.setdefault(fno, []).append((contour, stuck))
+        if not per_frame:
+            return
+
+        # Prefer acquisition metadata for the time label; load it if needed.
+        if time_label and len(self.elapsed_times) == 0:
+            try:
+                self.read_metadata()
+            except Exception:
+                pass
+
+        green = (0, 255, 0)   # moving (BGR)
+        red = (0, 0, 255)     # stuck (BGR)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        thick = 1
+        margin = 8
+
+        lo, hi = min(per_frame), max(per_frame)
+        # Fixed field width for the right-aligned frame number (steady as digits grow).
+        (num_field_w, _nh), _ = cv2.getTextSize(str(hi), font, font_scale, thick)
+
+        out_index = 0
+        for fno in range(lo, hi + 1):
+            frame = Frame()
+            frame.directory = self.directory
+            frame.header = self.header
+            frame.tail = self.tail
+            if not frame.read_frame(fno):
+                continue
+            canvas = self._to_uint8_bgr(frame.img)
+            h, w = canvas.shape[:2]
+            for contour, stuck in per_frame.get(fno, []):
+                pts = np.asarray(contour)
+                if pts.ndim != 2 or len(pts) < 2:
+                    continue
+                # contour is [row, col]; OpenCV wants [x=col, y=row].
+                xy = np.clip(pts[:, ::-1].astype(np.int32), [0, 0], [w - 1, h - 1])
+                cv2.polylines(canvas, [xy.reshape(-1, 1, 2)], False,
+                              red if stuck else green, 1, lineType=cv2.LINE_AA)
+
+            baseline_y = h - margin
+            if frame_label:
+                txt = str(fno)
+                (tw, _th), _ = cv2.getTextSize(txt, font, font_scale, thick)
+                # Right-align the number's right edge to a fixed column.
+                x = margin + num_field_w - tw
+                self._draw_label(canvas, txt, (x, baseline_y), font, font_scale, thick)
+            if time_label:
+                if fno < len(self.elapsed_times):
+                    t = float(self.elapsed_times[fno])
+                else:
+                    t = fno * float(frame_interval_s)
+                mm, ss = int(t // 60), int(round(t % 60))
+                if ss == 60:
+                    mm, ss = mm + 1, 0
+                tstr = "%02d:%02d" % (mm, ss)
+                (tw, _th), _ = cv2.getTextSize(tstr, font, font_scale, thick)
+                self._draw_label(canvas, tstr, (w - margin - tw, baseline_y),
+                                 font, font_scale, thick)
+
+            cv2.imwrite(os.path.join(self.directory, "overlay_%03d.png" % out_index), canvas)
+            out_index += 1
+
+        if out_index == 0:
+            print("No original frames could be read for the overlay movie "
+                  "(check header/tail); skipping overlay_tracks.mp4.")
+            return
+
+        print("Overlay movie: wrote %d frames in %s; encoding overlay_tracks.mp4 ..."
+              % (out_index, self.directory))
+        MOVIE_WRITERS.create(self.movie_format).write(
+            self.directory, extra_fname,
+            input_pattern="overlay_%03d.png", output_name="overlay_tracks.mp4",
+            fps=fps,
+        )
 
     def read_frame(self, num_frame, force_read=False):
         """Extract filaments from a single frame (or load cached result)."""
@@ -485,8 +646,9 @@ class Motility(MotilityPlots):
         self.frame.header = self.header
         self.frame.tail = self.tail
         self.frame.frame_no = num_frame
+        self.frame.cache_tag = self.cache_tag
 
-        filament_file = self.directory + "/filXYs%03d.npy" % num_frame
+        filament_file = self.directory + "/filXYs%s%03d.npy" % (self.cache_tag, num_frame)
         if not force_read and os.path.isfile(filament_file):
             self.frame.read_filXYs()
             self.frame.filXY2filaments()
@@ -511,6 +673,7 @@ class Motility(MotilityPlots):
         self.frame1.header = self.header
         self.frame1.tail = self.tail
         self.frame1.frame_no = frame_no
+        self.frame1.cache_tag = self.cache_tag
         self.frame1.read_filXYs()
         self.frame1.filXY2filaments()
 
@@ -520,6 +683,7 @@ class Motility(MotilityPlots):
         self.frame2.header = self.header
         self.frame2.tail = self.tail
         self.frame2.frame_no = frame_no
+        self.frame2.cache_tag = self.cache_tag
         self.frame2.read_filXYs()
         self.frame2.filXY2filaments()
 
@@ -533,10 +697,12 @@ class Motility(MotilityPlots):
 
     def save_links(self):
         np.save(
-            self.directory + "/links.npy",
+            self.directory + "/links%s.npy" % self.cache_tag,
             np.array(self.frame_links, dtype=object),
         )
 
     def load_links(self):
-        self.frame_links = list(np.load(self.directory + "/links.npy", allow_pickle=True))
+        self.frame_links = list(
+            np.load(self.directory + "/links%s.npy" % self.cache_tag, allow_pickle=True)
+        )
 

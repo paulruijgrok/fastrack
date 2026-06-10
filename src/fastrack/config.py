@@ -57,8 +57,31 @@ class RuntimeSettings:
     force_analysis: bool = False
     recalculate: bool = False
     make_movie: bool = False
+    overlay_movie: bool = False
     nprocs: Any = None  # None -> all cores
     verbose: bool = False
+
+
+@dataclass
+class RidgeSettings:
+    """Parameters for the optional ridge detector (analysis.detection_algorithm='ridge')."""
+    line_widths: list = field(default_factory=lambda: [3])
+    low_contrast: float = 50.0
+    high_contrast: float = 150.0
+    min_len: float = 10.0
+    max_len: float = 0.0
+    dark_line: bool = False
+    estimate_width: bool = True
+
+
+@dataclass
+class OverlaySettings:
+    """Styling for the overlay movie (fast --overlay-movie)."""
+    fps: float = 10.0                 # playback frame rate
+    frame_label: bool = True          # show frame number (bottom-left)
+    time_label: bool = True           # show mm:ss time (bottom-right)
+    frame_interval_s: float = 1.0     # seconds/frame fallback when no metadata
+    font_scale: float = 0.6
 
 
 _SECTIONS = {
@@ -66,6 +89,8 @@ _SECTIONS = {
     "analysis": AnalysisSettings,
     "plotting": PlottingSettings,
     "runtime": RuntimeSettings,
+    "ridge": RidgeSettings,
+    "overlay": OverlaySettings,
 }
 
 
@@ -75,6 +100,8 @@ class Settings:
     analysis: AnalysisSettings = field(default_factory=AnalysisSettings)
     plotting: PlottingSettings = field(default_factory=PlottingSettings)
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
+    ridge: RidgeSettings = field(default_factory=RidgeSettings)
+    overlay: OverlaySettings = field(default_factory=OverlaySettings)
 
     # ------------------------------------------------------------------ #
     # Construction / layering
@@ -157,6 +184,7 @@ class Settings:
             "diff_log_area_score_cutoff": an.diff_log_area_score_cutoff,
             "fit_function": an.fit_function,
             "detection_algorithm": an.detection_algorithm,
+            "detection_params": (asdict(self.ridge) if an.detection_algorithm == "ridge" else {}),
             "tracking_algorithm": an.tracking_algorithm,
             "legacy_linking": an.legacy_linking,
             "fast_rank": an.fast_rank,
@@ -167,6 +195,12 @@ class Settings:
             "force_analysis": rt.force_analysis,
             "recalculate": rt.recalculate,
             "make_movie": rt.make_movie,
+            "overlay_movie": rt.overlay_movie,
+            "overlay_fps": self.overlay.fps,
+            "overlay_frame_label": self.overlay.frame_label,
+            "overlay_time_label": self.overlay.time_label,
+            "overlay_frame_interval_s": self.overlay.frame_interval_s,
+            "overlay_font_scale": self.overlay.font_scale,
             "nprocs": rt.nprocs,
             "verbose": rt.verbose,
         }

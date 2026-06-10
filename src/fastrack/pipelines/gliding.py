@@ -16,6 +16,7 @@ from multiprocessing import Pool, cpu_count
 
 import numpy as np
 
+from ..core.detection import DETECTORS
 from ..core.frame import Frame
 from ..core.motility import Motility
 
@@ -34,7 +35,7 @@ def _extract_frame(task):
     set ``new_Motility.directory``.
     """
     (directory, header, tail, frame_no, force, fast_rank, morph_contrast,
-     detection_algorithm) = task
+     detection_algorithm, detection_params, cache_tag) = task
     m = Motility()
     m.directory = directory
     m.header = header
@@ -42,6 +43,8 @@ def _extract_frame(task):
     m.fast_rank = fast_rank
     m.morph_contrast = morph_contrast
     m.detection_algorithm = detection_algorithm
+    m.detection_params = detection_params
+    m.cache_tag = cache_tag
     try:
         m.read_frame(float(frame_no), force)
         m.save_frame()
@@ -66,6 +69,12 @@ def run(
     force_analysis=False,
     recalculate=False,
     make_movie=False,
+    overlay_movie=False,
+    overlay_fps=10.0,
+    overlay_frame_label=True,
+    overlay_time_label=True,
+    overlay_frame_interval_s=1.0,
+    overlay_font_scale=0.6,
     min_path_length=5,
     num_frames_ave=5,
     percent_tolerance=500,
@@ -84,10 +93,18 @@ def run(
     morph_contrast=False,
     detection_algorithm="entropy",
     tracking_algorithm="greedy",
+    detection_params=None,
     nprocs=None,
     verbose=False,
 ):
     """Run the full FAST analysis over a directory tree of movies."""
+    detection_params = dict(detection_params or {})
+
+    # Non-default detectors get their own output tree and filXYs cache so they
+    # never collide with (or reuse) the entropy detector's results.  The entropy
+    # defaults keep the original names unchanged (golden-master safe).
+    det_dir_tag = "" if detection_algorithm == "entropy" else "__det_" + detection_algorithm
+    cache_tag = "" if detection_algorithm == "entropy" else "_" + detection_algorithm
     if nprocs is None:
         # Frame extraction is the dominant, embarrassingly-parallel stage, so
         # default to all logical cores (override with -j).
@@ -123,6 +140,7 @@ def run(
         + "__ymax_" + str(int(plot_ymax))
         + "__p_" + str(min_path_length)
         + "__fx_" + fit_function
+        + det_dir_tag
     )
     cwd = os.getcwd()
 
@@ -225,10 +243,14 @@ def run(
         if not recalculate and not force_analysis and os.path.isfile(combined_vl_png_name):
             continue
 
+        # Capture the absolute top_root *before* chdir: afterwards ``flat()`` would
+        # resolve the relative ``top_root`` against the new cwd (top_root itself),
+        # duplicating the path in output filenames.
+        top_root_abs = os.path.abspath(top_root)
         os.chdir(top_root)
 
         for final_folder in process_folders[top_root]:
-            root = os.path.join(top_root, final_folder)
+            root = os.path.join(top_root_abs, final_folder)
 
             new_Frame = Frame()
             new_Frame.directory = final_folder
@@ -240,7 +262,15 @@ def run(
             frame_width = new_Frame.width
             frame_height = new_Frame.height
 
-            picture_quality = "good" if not file_exists else new_Frame.check_picture_quality()
+            if not file_exists:
+                picture_quality = "good"
+            elif detection_algorithm == "entropy":
+                picture_quality = new_Frame.check_picture_quality()
+            else:
+                # Non-entropy detectors define their own quality gate.
+                picture_quality = DETECTORS.create(
+                    detection_algorithm, **detection_params
+                ).assess_quality(new_Frame)
             if picture_quality == "bad":
                 print("Bad picture quality in %s" % (root))
                 continue
@@ -283,7 +313,8 @@ def run(
             # ----- parallel per-frame filament extraction ----------------- #
             tasks = [
                 (final_folder, "img_000000", tail_tif, no, force_analysis,
-                 fast_rank, morph_contrast, detection_algorithm)
+                 fast_rank, morph_contrast, detection_algorithm,
+                 detection_params, cache_tag)
                 for no in frame_nos
             ]
             if nprocs > 1 and len(tasks) > 1:
@@ -313,6 +344,10 @@ def run(
             new_motility.max_velocity = 1.0 * max_velocity / pixel_size
             new_motility.num_frames = number_of_frames
             new_motility.directory = final_folder
+            # header/tail are needed to re-read the original frames for the
+            # overlay movie (the linking phase itself only reads the filXYs cache).
+            new_motility.header = "img_000000"
+            new_motility.tail = tail_tif
             new_motility.force_analysis = force_analysis
             new_motility.width = frame_width
             new_motility.height = frame_height
@@ -325,6 +360,8 @@ def run(
             new_motility.morph_contrast = morph_contrast
             new_motility.detection_algorithm = detection_algorithm
             new_motility.tracking_algorithm = tracking_algorithm
+            new_motility.detection_params = detection_params
+            new_motility.cache_tag = cache_tag
 
             if not new_motility.read_frame_links():
                 new_motility.load_frame1(0)
@@ -341,8 +378,23 @@ def run(
             new_motility.plot_2D_path_data(num_frames_ave, extra_fname=out_path_fname)
 
             if make_movie:
-                new_motility.reconstruct_skeleton_images()
-                new_motility.make_movie(extra_fname=out_vl_txt_fname)
+                new_motility.reconstruct_skeleton_images(
+                    frame_label=overlay_frame_label,
+                    time_label=overlay_time_label,
+                    frame_interval_s=overlay_frame_interval_s,
+                    font_scale=overlay_font_scale,
+                )
+                new_motility.make_movie(extra_fname=out_vl_txt_fname, fps=overlay_fps)
+
+            if overlay_movie:
+                new_motility.make_overlay_movie(
+                    extra_fname=out_vl_txt_fname,
+                    fps=overlay_fps,
+                    frame_label=overlay_frame_label,
+                    time_label=overlay_time_label,
+                    frame_interval_s=overlay_frame_interval_s,
+                    font_scale=overlay_font_scale,
+                )
 
             if len(new_motility.full_len_vel) < 10:
                 continue
