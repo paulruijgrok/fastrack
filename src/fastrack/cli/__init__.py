@@ -84,9 +84,11 @@ def fast_main(argv=None):
                         help="use the exact 16-bit percentile filters instead of the default 8-bit path")
     parser.add_argument("--morph-contrast", action="store_true", default=S,
                         help="one-pass morphological-gradient contrast instead of two percentile passes")
-    parser.add_argument("--detector", default=S, choices=["entropy", "ridge"], dest="detector",
-                        help="filament detection algorithm (Default: entropy). 'ridge' requires "
-                             "the optional dependency: pip install 'fastrack[ridge]'")
+    parser.add_argument("--detector", default=S, choices=["entropy", "ridge", "ridge-fast"],
+                        dest="detector",
+                        help="filament detection algorithm (Default: entropy). 'ridge' needs "
+                             "pip install 'fastrack[ridge]'; 'ridge-fast' is the ~4x faster, "
+                             "numerically-identical drop-in: pip install 'fastrack[ridge-fast]'")
     # Ridge-detector parameters (used only with --detector ridge).
     parser.add_argument("--ridge-line-widths", nargs="*", type=int, default=S, dest="ridge_line_widths")
     parser.add_argument("--ridge-low-contrast", type=float, default=S, dest="ridge_low_contrast")

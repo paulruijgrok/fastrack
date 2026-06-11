@@ -1,9 +1,36 @@
 # Design notes: optional ridge-detector filament detection
 
-Status: **plain tier implemented** (upstream `ridge-detector`, no numba). The
-optimized/numba `ridge-fast` tier remains future work. Captures the plan and the
-as-built integration of a ridge-detection filament detector as an *optional*
+Status: **both tiers implemented** — `ridge` (upstream `ridge-detector`) and
+`ridge-fast` (the optimized `ridge-detector-fast` drop-in). Captures the plan and
+the as-built integration of ridge-detection filament detection as an *optional*
 (non-default) choice, so the default install stays lean.
+
+## Fast tier (`ridge-fast`) — as built
+
+The optimized detector ([`ridge-detector-fast`](https://github.com/paulruijgrok/ridge-detector),
+import `ridge_detector_fast`) subclasses upstream `RidgeDetector` as
+`OptimizedRidgeDetector` with the **same API** and numerically-identical output
+(verified: identical contour/point counts), ~4× faster (analytical 2×2
+eigendecomposition, float32 throughout, OpenCV separable filters, numba-compiled
+contour tracing).
+
+Because the API and the produced `Line` objects are identical, the FASTrack
+adapter is shared: `ridge.py` defines `_RidgeAdapterBase` (all the `detect` /
+`assess_quality` / `_contours_to_filxys` logic) and two thin subclasses that
+differ only in which class they lazily import — `RidgeLineDetector` (`"ridge"`)
+and `OptimizedRidgeLineDetector` (`"ridge-fast"`). The pipeline's
+detector-namespaced output tree / cache is generic over the detector name, so
+`ridge-fast` automatically gets `...__det_ridge-fast/` and
+`filXYs_ridge-fast%03d.npy` with no pipeline changes; it reuses the same
+`[ridge]` / `--ridge-*` parameters.
+
+- `pyproject.toml`: `ridge-fast = ["ridge-detector-fast @ git+https://github.com/paulruijgrok/ridge-detector"]`
+  (installed from git; pulls in base `ridge-detector` + numba transitively).
+- `tools/compare_detectors.py --detectors ridge ridge-fast` confirms the
+  identical-results + ~4× story; add `entropy` for a three-way comparison.
+- Tests: `tests/test_ridge.py` adds registration, the missing-dep ImportError,
+  a shared-mapping check, and an end-to-end equality test that `importorskip`s
+  both `ridge_detector` and `ridge_detector_fast`.
 
 ## As built (plain tier)
 

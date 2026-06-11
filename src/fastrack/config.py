@@ -184,7 +184,8 @@ class Settings:
             "diff_log_area_score_cutoff": an.diff_log_area_score_cutoff,
             "fit_function": an.fit_function,
             "detection_algorithm": an.detection_algorithm,
-            "detection_params": (asdict(self.ridge) if an.detection_algorithm == "ridge" else {}),
+            "detection_params": (asdict(self.ridge)
+                                 if an.detection_algorithm in ("ridge", "ridge-fast") else {}),
             "tracking_algorithm": an.tracking_algorithm,
             "legacy_linking": an.legacy_linking,
             "fast_rank": an.fast_rank,

@@ -1,15 +1,22 @@
-"""Ridge-detection filament detector (optional).
+"""Ridge-detection filament detectors (optional).
 
-Wraps the upstream ``ridge-detector`` package (Steger's multi-scale unbiased
-curvilinear-structure detector) as a FASTrack :class:`Detector`.  Instead of the
-entropy/watershed segmentation, it detects filament centerlines directly and
-maps each detected ridge ``Line`` onto FASTrack's ``filXYs`` representation, so
-the rest of the pipeline (tracking, statistics, plotting) is unchanged.
+Wraps Steger's multi-scale unbiased curvilinear-structure detector as a FASTrack
+:class:`Detector`.  Instead of the entropy/watershed segmentation, it detects
+filament centerlines directly and maps each detected ridge ``Line`` onto
+FASTrack's ``filXYs`` representation, so the rest of the pipeline (tracking,
+statistics, plotting) is unchanged.
 
-The ``ridge-detector`` dependency is **optional** and imported lazily, so the
-default FASTrack install does not require it.  Install it with::
+Two registered variants share identical mapping logic and differ only in the
+upstream class they instantiate:
 
-    pip install 'fastrack[ridge]'
+* ``"ridge"`` -- the reference ``ridge-detector`` package (lxfhfut/ridge-detector).
+* ``"ridge-fast"`` -- ``ridge-detector-fast`` (paulruijgrok/ridge-detector),
+  a numerically-identical, ~4x faster drop-in (analytical 2x2 eigendecomposition,
+  float32, OpenCV separable filters, numba-compiled contour tracing).
+
+Both dependencies are **optional** and imported lazily, so the default FASTrack
+install requires neither.  Install with ``pip install 'fastrack[ridge]'`` or
+``pip install 'fastrack[ridge-fast]'``.
 """
 import numpy as np
 
@@ -53,13 +60,13 @@ def _contours_to_filxys(contours, img):
     return filxys
 
 
-@DETECTORS.register("ridge")
-class RidgeLineDetector(Detector):
-    """Detect filaments as ridges via the upstream ``ridge-detector`` package.
+class _RidgeAdapterBase(Detector):
+    """Shared ridge->filXYs adapter; subclasses pick the upstream detector class.
 
     Parameters mirror ``ridge_detector.RidgeDetector``; defaults are tuned for
     bright filaments on a dark background (``dark_line=False``), as in the
-    gliding-assay movies.
+    gliding-assay movies.  The two concrete detectors are interchangeable and
+    use the same parameters -- only the underlying implementation differs.
     """
 
     def __init__(
@@ -74,15 +81,7 @@ class RidgeLineDetector(Detector):
         extend_line=False,
         correct_pos=False,
     ):
-        try:
-            from ridge_detector import RidgeDetector as _UpstreamRidgeDetector
-        except ImportError as exc:  # pragma: no cover - exercised only without the extra
-            raise ImportError(
-                "The 'ridge' detector requires the optional 'ridge-detector' "
-                "dependency. Install it with:\n    pip install 'fastrack[ridge]'"
-            ) from exc
-
-        self._detector_cls = _UpstreamRidgeDetector
+        self._detector_cls = self._import_detector_cls()
         self.params = dict(
             line_widths=list(line_widths),
             low_contrast=low_contrast,
@@ -94,6 +93,10 @@ class RidgeLineDetector(Detector):
             extend_line=extend_line,
             correct_pos=correct_pos,
         )
+
+    @staticmethod
+    def _import_detector_cls():  # pragma: no cover - overridden
+        raise NotImplementedError
 
     def detect(self, frame):
         """Detect ridge filaments in ``frame.img`` and populate ``frame``.
@@ -109,3 +112,40 @@ class RidgeLineDetector(Detector):
     def assess_quality(self, frame):
         # The ridge detector has no acquisition-quality gate of its own.
         return "good"
+
+
+@DETECTORS.register("ridge")
+class RidgeLineDetector(_RidgeAdapterBase):
+    """Reference ridge detector (``ridge-detector``; lxfhfut/ridge-detector)."""
+
+    @staticmethod
+    def _import_detector_cls():
+        try:
+            from ridge_detector import RidgeDetector
+        except ImportError as exc:  # pragma: no cover - only without the extra
+            raise ImportError(
+                "The 'ridge' detector requires the optional 'ridge-detector' "
+                "dependency. Install it with:\n    pip install 'fastrack[ridge]'"
+            ) from exc
+        return RidgeDetector
+
+
+@DETECTORS.register("ridge-fast")
+class OptimizedRidgeLineDetector(_RidgeAdapterBase):
+    """Speed-optimized ridge detector (``ridge-detector-fast``).
+
+    Numerically identical to ``"ridge"`` (verified: same contour and point
+    counts) but ~4x faster end to end.  See paulruijgrok/ridge-detector.
+    """
+
+    @staticmethod
+    def _import_detector_cls():
+        try:
+            from ridge_detector_fast import OptimizedRidgeDetector
+        except ImportError as exc:  # pragma: no cover - only without the extra
+            raise ImportError(
+                "The 'ridge-fast' detector requires the optional "
+                "'ridge-detector-fast' dependency. Install it with:\n"
+                "    pip install 'fastrack[ridge-fast]'"
+            ) from exc
+        return OptimizedRidgeDetector
