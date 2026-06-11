@@ -32,6 +32,40 @@ def test_ridge_requires_dependency_or_constructs():
             DETECTORS.create("ridge")
 
 
+def test_ridge_fast_is_registered():
+    # The optimized variant is registered the same way (lazy import).
+    from fastrack.core.detection import DETECTORS
+    assert "ridge-fast" in DETECTORS
+
+
+def test_ridge_fast_requires_dependency_or_constructs():
+    """Without the extra, constructing raises a clear ImportError naming ridge-fast."""
+    from fastrack.core.detection import DETECTORS
+    try:
+        import ridge_detector_fast  # noqa: F401
+        have_dep = True
+    except ImportError:
+        have_dep = False
+
+    if have_dep:
+        det = DETECTORS.create("ridge-fast", line_widths=[3])
+        assert det.params["line_widths"] == [3]
+    else:
+        with pytest.raises(ImportError, match="fastrack\\[ridge-fast\\]"):
+            DETECTORS.create("ridge-fast")
+
+
+def test_ridge_and_ridge_fast_share_mapping():
+    """Both detectors are the same adapter; mapping is identical by construction."""
+    from fastrack.core.detection.ridge import (
+        RidgeLineDetector, OptimizedRidgeLineDetector, _RidgeAdapterBase,
+    )
+    assert issubclass(RidgeLineDetector, _RidgeAdapterBase)
+    assert issubclass(OptimizedRidgeLineDetector, _RidgeAdapterBase)
+    # The contour->filXYs conversion is the shared module function, not overridden.
+    assert RidgeLineDetector.detect is OptimizedRidgeLineDetector.detect
+
+
 def test_contours_to_filxys_mapping():
     """The Line -> filXYs mapping is dependency-free and exercised with stubs."""
     from fastrack.core.detection.ridge import _contours_to_filxys
@@ -142,3 +176,35 @@ def test_ridge_detect_end_to_end():
     assert np.asarray(fil.contour).ndim == 2 and np.asarray(fil.contour).shape[1] == 2
     assert fil.fil_length > 0
     assert len(np.atleast_1d(fil.cm)) == 2
+
+
+def test_ridge_fast_matches_ridge_end_to_end():
+    """ridge-fast is a numerically-identical drop-in: on the same frame it must
+    produce the same filament contours as ridge.  Skips unless BOTH deps exist."""
+    pytest.importorskip("scipy")
+    pytest.importorskip("skimage")
+    pytest.importorskip("cv2")
+    pytest.importorskip("ridge_detector")
+    pytest.importorskip("ridge_detector_fast")
+
+    from fastrack.core.frame import Frame
+    from fastrack.core.detection import DETECTORS
+
+    img = np.zeros((64, 64), dtype=np.uint16)
+    for r in (16, 32, 48):
+        img[r - 1:r + 2, 8:56] = 4000
+
+    params = dict(line_widths=[3], low_contrast=20, high_contrast=80,
+                  min_len=10, dark_line=False, estimate_width=True)
+
+    results = {}
+    for name in ("ridge", "ridge-fast"):
+        frame = Frame()
+        frame.frame_no, frame.img = 0, img
+        frame.width, frame.height = img.shape
+        DETECTORS.create(name, **params).detect(frame)
+        results[name] = sorted(
+            np.asarray(f.contour).tolist() for f in frame.filaments
+        )
+
+    assert results["ridge"] == results["ridge-fast"]

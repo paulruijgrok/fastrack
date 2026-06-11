@@ -94,12 +94,32 @@ Then select it with `fast -d <dir> --detector ridge` (tune with `--ridge-*`
 flags: `--ridge-line-widths`, `--ridge-low-contrast`, `--ridge-high-contrast`,
 `--ridge-min-len`, `--ridge-dark-line`). Ridge results are written to their own
 output tree (`...__det_ridge/`) and use a separate per-frame cache, so they never
-collide with the default entropy detector. Compare the two detectors (runtime +
-velocities) in one command with `python tools/compare_detectors.py -d <dataset>`.
-The ridge extra pulls in
+collide with the default entropy detector. The ridge extra pulls in
 `ridge-detector` **and `numba`** (the upstream package imports numba but doesn't
 declare it). numba (with LLVM) is the one heavy addition, which is why the
 default `pip install -e .` leaves it out.
+
+**Faster variant (`ridge-fast`).** A performance-optimized, numerically-identical
+drop-in ([`ridge-detector-fast`](https://github.com/paulruijgrok/ridge-detector),
+~4× faster via analytical 2×2 eigendecomposition, float32, OpenCV separable
+filters, and a numba-compiled contour tracer) is available as a separate extra:
+
+```bash
+pip install -e '.[ridge-fast]'      # installs ridge-detector-fast from git
+fast -d <dir> --detector ridge-fast
+```
+
+It takes the same `--ridge-*` parameters and gets its own output tree
+(`...__det_ridge-fast/`) and cache. Because the two produce identical contours,
+`ridge-fast` is the one to use for real runs; plain `ridge` is kept as the
+reference. Compare any set of detectors (runtime + velocities) in one command,
+e.g. confirm the identical-results-and-4× story with
+`python tools/compare_detectors.py -d <dataset> --detectors ridge ridge-fast`, or
+add `entropy` to the list for a three-way comparison. Pass `--time-detection` to
+also report the **detection stage in isolation** (in-process, numba warm-up
+excluded), which shows the ~4× directly — the full-pipeline wall-clock dilutes it
+with the unchanged linking/plotting/I/O work. Use `--detection-only` to run just
+that timer (skipping the full runs).
 
 Movie generation (`fast -m`) additionally needs **ffmpeg** on your `PATH`:
 
