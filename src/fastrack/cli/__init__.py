@@ -24,6 +24,7 @@ _CLI_TO_FIELD = {
     "lascore": "log_area_score_cutoff", "dlascore": "diff_log_area_score_cutoff",
     "legacy_linking": "legacy_linking", "fast_rank": "fast_rank",
     "morph_contrast": "morph_contrast", "detector": "detection_algorithm",
+    "cache_layout": "cache_layout",
     "j": "nprocs", "v": "verbose",
     "ridge_line_widths": "line_widths", "ridge_low_contrast": "low_contrast",
     "ridge_high_contrast": "high_contrast", "ridge_min_len": "min_len",
@@ -84,6 +85,10 @@ def fast_main(argv=None):
                         help="use the exact 16-bit percentile filters instead of the default 8-bit path")
     parser.add_argument("--morph-contrast", action="store_true", default=S,
                         help="one-pass morphological-gradient contrast instead of two percentile passes")
+    parser.add_argument("--cache-layout", default=S, choices=["per-frame", "per-movie"],
+                        dest="cache_layout",
+                        help="intermediate filXYs cache: 'per-frame' (one .npy per frame, default) "
+                             "or 'per-movie' (a single .npz per movie)")
     parser.add_argument("--detector", default=S, choices=["entropy", "ridge", "ridge-fast"],
                         dest="detector",
                         help="filament detection algorithm (Default: entropy). 'ridge' needs "

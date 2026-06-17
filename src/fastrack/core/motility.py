@@ -32,6 +32,7 @@ from ..analysis import (  # noqa: E402
 )
 from ..io.images import alpha_composite  # noqa: E402
 from ..io.movie import MOVIE_WRITERS  # noqa: E402
+from ..io.stores import STORES  # noqa: E402
 from ..viz.plots import MotilityPlots  # noqa: E402
 from .detection import DETECTORS  # noqa: E402
 from .filament import Filament  # noqa: E402
@@ -113,7 +114,19 @@ class Motility(MotilityPlots):
         # ("" for entropy keeps the original filenames).
         self.cache_tag = ""
 
+        # Intermediate filXYs cache layout: "per-frame" (one .npy per frame,
+        # the original/default) or "per-movie" (one .npz per movie).
+        self.cache_layout = "per-frame"
+        self._store = None
+
     # ----- pluggable strategy factories ----------------------------------- #
+    def get_store(self):
+        """Build (once) the configured filament store from ``cache_layout``."""
+        if self._store is None:
+            name = "per-movie" if self.cache_layout == "per-movie" else "npy"
+            self._store = STORES.create(name)
+        return self._store
+
     def get_detector(self):
         """Build the configured filament detector from the current settings.
 
@@ -648,9 +661,9 @@ class Motility(MotilityPlots):
         self.frame.frame_no = num_frame
         self.frame.cache_tag = self.cache_tag
 
-        filament_file = self.directory + "/filXYs%s%03d.npy" % (self.cache_tag, num_frame)
-        if not force_read and os.path.isfile(filament_file):
-            self.frame.read_filXYs()
+        store = self.get_store()
+        if not force_read and store.has(self.directory, self.cache_tag, num_frame):
+            self.frame.filXYs = store.read(self.directory, self.cache_tag, num_frame)
             self.frame.filXY2filaments()
             return 1
 
@@ -665,7 +678,9 @@ class Motility(MotilityPlots):
         return 0
 
     def save_frame(self):
-        self.frame.save_filXYs()
+        self.get_store().write(
+            self.directory, self.cache_tag, self.frame.frame_no, self.frame.filXYs
+        )
 
     def load_frame1(self, frame_no):
         self.frame1 = Frame()
@@ -674,7 +689,7 @@ class Motility(MotilityPlots):
         self.frame1.tail = self.tail
         self.frame1.frame_no = frame_no
         self.frame1.cache_tag = self.cache_tag
-        self.frame1.read_filXYs()
+        self.frame1.filXYs = self.get_store().read(self.directory, self.cache_tag, frame_no)
         self.frame1.filXY2filaments()
 
     def load_frame2(self, frame_no):
@@ -684,7 +699,7 @@ class Motility(MotilityPlots):
         self.frame2.tail = self.tail
         self.frame2.frame_no = frame_no
         self.frame2.cache_tag = self.cache_tag
-        self.frame2.read_filXYs()
+        self.frame2.filXYs = self.get_store().read(self.directory, self.cache_tag, frame_no)
         self.frame2.filXY2filaments()
 
     def write_length_velocity(self, header="", extra_fname=None):

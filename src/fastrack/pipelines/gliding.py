@@ -19,6 +19,7 @@ import numpy as np
 from ..core.detection import DETECTORS
 from ..core.frame import Frame
 from ..core.motility import Motility
+from ..io.stores import STORES
 
 warnings.filterwarnings("ignore")
 
@@ -51,6 +52,32 @@ def _extract_frame(task):
         return (frame_no, None)
     except Exception as exc:  # pragma: no cover - surfaced to the parent
         return (frame_no, str(exc))
+
+
+def _detect_frame(task):
+    """Detect one frame and *return* its filXYs (per-movie layout).
+
+    Unlike :func:`_extract_frame`, the worker does not write any file: the
+    parent is the single writer for the one per-movie store.  The parent has
+    already filtered out cached frames, so detection always runs (force).
+    Returns ``(frame_no, filXYs_or_None, error_or_None)``.
+    """
+    (directory, header, tail, frame_no, fast_rank, morph_contrast,
+     detection_algorithm, detection_params, cache_tag) = task
+    m = Motility()
+    m.directory = directory
+    m.header = header
+    m.tail = tail
+    m.fast_rank = fast_rank
+    m.morph_contrast = morph_contrast
+    m.detection_algorithm = detection_algorithm
+    m.detection_params = detection_params
+    m.cache_tag = cache_tag
+    try:
+        m.read_frame(float(frame_no), force_read=True)
+        return (frame_no, m.frame.filXYs, None)
+    except Exception as exc:  # pragma: no cover - surfaced to the parent
+        return (frame_no, None, str(exc))
 
 
 def is_number(s):
@@ -94,6 +121,7 @@ def run(
     detection_algorithm="entropy",
     tracking_algorithm="greedy",
     detection_params=None,
+    cache_layout="per-frame",
     nprocs=None,
     verbose=False,
 ):
@@ -289,7 +317,11 @@ def run(
             print("Processing tif files in %s" % (root))
             start_t = time.time()
 
-            # ----- enumerate frame numbers from the tif files ------------- #
+            # ----- pick the filXYs store for the chosen layout ------------ #
+            store = STORES.create(
+                "per-movie" if cache_layout == "per-movie" else "npy")
+
+            # ----- enumerate frame numbers -------------------------------- #
             tif_in_folder = [
                 x for x in os.listdir(final_folder) if os.path.splitext(x)[1] == ".tif"
             ]
@@ -298,43 +330,75 @@ def run(
                     int(os.path.basename(x).split("_")[1]) for x in tif_in_folder
                 )
             else:
-                # No tifs: fall back to existing filXYs npy files.
-                fil_files = [
-                    x for x in os.listdir(final_folder) if x[:6] == "filXYs"
-                ]
-                frame_nos = sorted(
-                    int(os.path.splitext(x)[0][6:]) for x in fil_files
-                )
+                # No tifs: fall back to whatever frames are already cached
+                # (per-frame .npy files or per-movie .npz members).
+                frame_nos = store.frames(final_folder, cache_tag)
 
             number_of_frames = len(frame_nos)
             if number_of_frames == 0:
                 continue
 
-            # ----- parallel per-frame filament extraction ----------------- #
-            tasks = [
-                (final_folder, "img_000000", tail_tif, no, force_analysis,
-                 fast_rank, morph_contrast, detection_algorithm,
-                 detection_params, cache_tag)
-                for no in frame_nos
-            ]
-            if nprocs > 1 and len(tasks) > 1:
-                with Pool(processes=min(nprocs, len(tasks))) as pool:
-                    results = pool.map(_extract_frame, tasks)
+            # ----- per-frame filament extraction (parallel) --------------- #
+            if cache_layout == "per-movie":
+                # Single-writer: workers detect and *return* filXYs; the parent
+                # writes the one per-movie store.  Already-cached frames are
+                # skipped (unless forced), so peak memory is one frame in flight.
+                todo = [
+                    no for no in frame_nos
+                    if force_analysis or not store.has(final_folder, cache_tag, no)
+                ]
+                tasks = [
+                    (final_folder, "img_000000", tail_tif, no,
+                     fast_rank, morph_contrast, detection_algorithm,
+                     detection_params, cache_tag)
+                    for no in todo
+                ]
+                failures = []
+                store.open_write(final_folder, cache_tag, force=force_analysis)
+                try:
+                    if nprocs > 1 and len(tasks) > 1:
+                        with Pool(processes=min(nprocs, len(tasks))) as pool:
+                            for no, filXYs, err in pool.imap_unordered(_detect_frame, tasks):
+                                if err is not None:
+                                    failures.append((no, err))
+                                else:
+                                    store.write(final_folder, cache_tag, no, filXYs)
+                    else:
+                        for t in tasks:
+                            no, filXYs, err = _detect_frame(t)
+                            if err is not None:
+                                failures.append((no, err))
+                            else:
+                                store.write(final_folder, cache_tag, no, filXYs)
+                finally:
+                    store.close()
+                n_tasks = len(tasks)
             else:
-                results = [_extract_frame(t) for t in tasks]
+                tasks = [
+                    (final_folder, "img_000000", tail_tif, no, force_analysis,
+                     fast_rank, morph_contrast, detection_algorithm,
+                     detection_params, cache_tag)
+                    for no in frame_nos
+                ]
+                if nprocs > 1 and len(tasks) > 1:
+                    with Pool(processes=min(nprocs, len(tasks))) as pool:
+                        results = pool.map(_extract_frame, tasks)
+                else:
+                    results = [_extract_frame(t) for t in tasks]
+                failures = [(no, err) for no, err in results if err is not None]
+                n_tasks = len(results)
 
-            failures = [(no, err) for no, err in results if err is not None]
             if failures:
                 # Always surface failures: a silent extraction failure would
                 # otherwise look like "no output" downstream.
                 print("  %d/%d frames failed to extract in %s"
-                      % (len(failures), len(results), root))
+                      % (len(failures), n_tasks, root))
                 # Show the first failure (and all of them in verbose mode) so
                 # the underlying error is visible.
                 shown = failures if verbose else failures[:1]
                 for no, err in shown:
                     print("    frame %d: %s" % (no, err))
-                if len(failures) == len(results):
+                if n_tasks and len(failures) == n_tasks:
                     print("  All frames failed; skipping %s." % root)
                     continue
 
@@ -362,6 +426,7 @@ def run(
             new_motility.tracking_algorithm = tracking_algorithm
             new_motility.detection_params = detection_params
             new_motility.cache_tag = cache_tag
+            new_motility.cache_layout = cache_layout
 
             if not new_motility.read_frame_links():
                 new_motility.load_frame1(0)
