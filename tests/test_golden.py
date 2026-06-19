@@ -49,7 +49,8 @@ def _read_values(path):
     return rows
 
 
-def test_outputs_match_baseline(tmp_path):
+@pytest.mark.parametrize("cache_layout", ["per-frame", "per-movie"])
+def test_outputs_match_baseline(tmp_path, cache_layout):
     from fastrack.pipelines import gliding
 
     cwd = os.getcwd()
@@ -60,6 +61,7 @@ def test_outputs_match_baseline(tmp_path):
             force_analysis=True,
             fast_rank=False,        # exact 16-bit reference path
             morph_contrast=False,
+            cache_layout=cache_layout,
         )
         produced = sorted(
             glob.glob("outputs/**/combined/MEAN_values.txt", recursive=True)

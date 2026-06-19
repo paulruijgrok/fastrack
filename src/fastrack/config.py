@@ -58,6 +58,8 @@ class RuntimeSettings:
     recalculate: bool = False
     make_movie: bool = False
     overlay_movie: bool = False
+    #: filXYs cache layout: "per-frame" (one .npy/frame, default) or "per-movie".
+    cache_layout: str = "per-frame"
     nprocs: Any = None  # None -> all cores
     verbose: bool = False
 
@@ -197,6 +199,7 @@ class Settings:
             "recalculate": rt.recalculate,
             "make_movie": rt.make_movie,
             "overlay_movie": rt.overlay_movie,
+            "cache_layout": rt.cache_layout,
             "overlay_fps": self.overlay.fps,
             "overlay_frame_label": self.overlay.frame_label,
             "overlay_time_label": self.overlay.time_label,

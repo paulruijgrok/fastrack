@@ -35,6 +35,7 @@ maxvel_color = "b"
 [runtime]
 make_movie = false
 overlay_movie = true
+cache_layout = "per-frame"            # per-frame (one .npy/frame) | per-movie (one .npz/movie)
 # nprocs = 8                          # default: all cores
 
 [ridge]                               # used by both "ridge" and "ridge-fast"

@@ -179,6 +179,27 @@ percentile filters instead of the default 8-bit fast path — slower but exact),
 percentile passes — faster but noise-sensitive; off by default, A/B it),
 `-v` (verbose).
 
+### Intermediate cache layout
+
+Detection writes its per-frame filaments (the `filXYs` intermediate consumed by
+the tracker) to a cache in each movie folder. Two layouts are available via
+`--cache-layout` (or `[runtime] cache_layout` in a config file):
+
+- `per-frame` (default) — one `filXYs<tag>NNN.npy` per frame, as in the original
+  pipeline.
+- `per-movie` — a single `filXYs<tag>.npz` per movie. Detection still runs in
+  parallel across frames; the workers return their results and the parent process
+  is the single writer, so memory stays bounded (one frame in flight) and the
+  movie folder isn't littered with hundreds of tiny files.
+
+Both layouts store identical content and produce identical results — the
+golden-master regression runs under both — so the choice only affects how the
+intermediate cache is laid out on disk, e.g.:
+
+```bash
+fast -d <dataset> --cache-layout per-movie
+```
+
 ### Config files
 
 For runs with many non-default options (especially the overlay-movie styling),
