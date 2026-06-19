@@ -200,6 +200,47 @@ intermediate cache is laid out on disk, e.g.:
 fast -d <dataset> --cache-layout per-movie
 ```
 
+### Exporting trajectories for downstream analysis
+
+The intermediate `.npy`/`.npz` caches are fast for re-runs but need the program
+(and numpy) to open. To get the rich result — the full tracked trajectories of
+every filament — in a form any tool can read, use `--export-trajectories`:
+
+```bash
+fast -d <dataset> --export-trajectories            # tidy trajectory CSV per movie
+fast -d <dataset> --export-trajectories --export-contours   # also the skeleton geometry
+```
+
+This writes one **tidy CSV per movie** to the `outputs/` tree,
+`<movie>_trajectories.csv`, with one row per filament per frame in **physical
+units** (nm, seconds):
+
+| column | meaning |
+|---|---|
+| `movie` | movie identifier (folder) |
+| `path_id` | trajectory id within the movie — **group by this** to get one filament's full track |
+| `frame`, `time_s` | frame index and acquisition time (s) |
+| `length_nm` | filament length (nm) |
+| `x_nm`, `y_nm` | midpoint position (nm; `x` = column, `y` = row) |
+| `cm_x_nm`, `cm_y_nm` | centre-of-mass position (nm) |
+| `velocity_nm_s` | instantaneous speed (nm/s); blank on each trajectory's last frame |
+| `stuck` | 1 if the path is classified stuck, else 0 |
+| `n_points` | number of skeleton points (links to the contour file) |
+
+It's plain CSV — open it in Excel, pandas (`df.groupby(["movie", "path_id"])`), R,
+or Julia and build whatever analysis isn't in FASTrack. `--export-contours`
+additionally writes `<movie>_contours.csv`, the long-format skeleton geometry
+(one row per contour point: `movie, path_id, frame, point, x_nm, y_nm`), joinable
+to the trajectory table on `(movie, path_id, frame)`. Both are written for every
+processed movie, independent of the velocity-statistics plots.
+
+For convenience, every movie's rows are also concatenated into a single
+dataset-wide file under `outputs/<...>/combined/`: **`all_trajectories.csv`** (and
+`all_contours.csv` with `--export-contours`), so you can load the whole
+experiment at once — the `movie` column keeps the movies distinct. (Use `-f` for
+a complete combined file; top-level folders skipped as already-analysed aren't
+re-exported.)
+
 ### Config files
 
 For runs with many non-default options (especially the overlay-movie styling),

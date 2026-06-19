@@ -60,6 +60,9 @@ class RuntimeSettings:
     overlay_movie: bool = False
     #: filXYs cache layout: "per-frame" (one .npy/frame, default) or "per-movie".
     cache_layout: str = "per-frame"
+    #: write a tidy per-movie trajectory CSV (and optionally the contour geometry).
+    export_trajectories: bool = False
+    export_contours: bool = False
     nprocs: Any = None  # None -> all cores
     verbose: bool = False
 
@@ -200,6 +203,8 @@ class Settings:
             "make_movie": rt.make_movie,
             "overlay_movie": rt.overlay_movie,
             "cache_layout": rt.cache_layout,
+            "export_trajectories": rt.export_trajectories,
+            "export_contours": rt.export_contours,
             "overlay_fps": self.overlay.fps,
             "overlay_frame_label": self.overlay.frame_label,
             "overlay_time_label": self.overlay.time_label,

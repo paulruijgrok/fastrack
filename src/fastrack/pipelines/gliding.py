@@ -122,6 +122,8 @@ def run(
     tracking_algorithm="greedy",
     detection_params=None,
     cache_layout="per-frame",
+    export_trajectories=False,
+    export_contours=False,
     nprocs=None,
     verbose=False,
 ):
@@ -211,6 +213,20 @@ def run(
     else:
         m_stats = open(out_MEAN_fname, "a")
         s_stats = open(out_SEM_fname, "a")
+
+    # All-movies trajectory export accumulates into one file for the whole dataset
+    # (appended per movie so we never hold every movie's rows in memory at once).
+    combined_traj_fname = os.path.abspath(
+        os.path.join(out_base, "combined", "all_trajectories.csv"))
+    combined_contour_fname = os.path.abspath(
+        os.path.join(out_base, "combined", "all_contours.csv"))
+    traj_header_written = False
+    contour_header_written = False
+    if export_trajectories:
+        # Start fresh so the combined file reflects only this run's movies.
+        for _p in (combined_traj_fname, combined_contour_fname):
+            if os.path.isfile(_p):
+                os.remove(_p)
 
     # ----- discover folders to process ------------------------------------ #
     process_folders = {}
@@ -441,6 +457,33 @@ def run(
 
             new_motility.process_frame_links(num_frames_ave)
             new_motility.plot_2D_path_data(num_frames_ave, extra_fname=out_path_fname)
+
+            # Rich trajectory export (one tidy CSV per movie, physical units).
+            # Done here -- before the sparse-movie stats gate below -- so every
+            # processed movie gets its full trajectory data regardless of the
+            # velocity-statistics threshold.
+            if export_trajectories:
+                from ..io.export import (
+                    write_rows_csv, append_rows_csv,
+                    TRAJECTORY_COLUMNS, CONTOUR_COLUMNS)
+                traj = new_motility.trajectory_rows(movie=root_flat)
+                write_rows_csv(
+                    traj, out_vl_txt_fname + "trajectories.csv", TRAJECTORY_COLUMNS)
+                append_rows_csv(traj, combined_traj_fname, TRAJECTORY_COLUMNS,
+                                write_header=not traj_header_written)
+                traj_header_written = True
+                print("  wrote %d trajectory rows -> %strajectories.csv (+ combined)"
+                      % (len(traj), os.path.basename(out_vl_txt_fname)))
+                if export_contours:
+                    # contour_rows is a generator; iterate once per destination.
+                    write_rows_csv(
+                        new_motility.contour_rows(movie=root_flat),
+                        out_vl_txt_fname + "contours.csv", CONTOUR_COLUMNS)
+                    append_rows_csv(
+                        new_motility.contour_rows(movie=root_flat),
+                        combined_contour_fname, CONTOUR_COLUMNS,
+                        write_header=not contour_header_written)
+                    contour_header_written = True
 
             if make_movie:
                 new_motility.reconstruct_skeleton_images(
