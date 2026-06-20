@@ -25,6 +25,7 @@ _CLI_TO_FIELD = {
     "legacy_linking": "legacy_linking", "fast_rank": "fast_rank",
     "morph_contrast": "morph_contrast", "detector": "detection_algorithm",
     "cache_layout": "cache_layout",
+    "export_trajectories": "export_trajectories", "export_contours": "export_contours",
     "j": "nprocs", "v": "verbose",
     "ridge_line_widths": "line_widths", "ridge_low_contrast": "low_contrast",
     "ridge_high_contrast": "high_contrast", "ridge_min_len": "min_len",
@@ -89,6 +90,14 @@ def fast_main(argv=None):
                         dest="cache_layout",
                         help="intermediate filXYs cache: 'per-frame' (one .npy per frame, default) "
                              "or 'per-movie' (a single .npz per movie)")
+    parser.add_argument("--export-trajectories", action="store_true", default=S,
+                        dest="export_trajectories",
+                        help="write a tidy per-movie trajectory CSV (one row per filament per "
+                             "frame; physical units; group by path_id) for downstream analysis")
+    parser.add_argument("--export-contours", action="store_true", default=S,
+                        dest="export_contours",
+                        help="with --export-trajectories, also write the skeleton geometry as a "
+                             "long-format contour CSV (one row per contour point)")
     parser.add_argument("--detector", default=S, choices=["entropy", "ridge", "ridge-fast"],
                         dest="detector",
                         help="filament detection algorithm (Default: entropy). 'ridge' needs "

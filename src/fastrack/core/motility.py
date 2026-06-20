@@ -496,6 +496,80 @@ class Motility(MotilityPlots):
         sort_i = np.argsort(self.max_len_vel[:, 0])
         self.max_len_vel = self.max_len_vel[sort_i, :]
 
+    def trajectory_rows(self, movie=""):
+        """Tidy per-filament-per-frame trajectory rows in physical units.
+
+        Call after :meth:`process_frame_links` (paths built, velocities already
+        scaled to nm/s and ``stuck`` set).  Emits one row per frame a filament is
+        tracked in; ``path_id`` ties a trajectory together (group by it).
+        Positions are reported as ``x`` = column, ``y`` = row, in nm.
+        """
+        rows = []
+        dx = self.dx
+        for path_id, path in enumerate(self.paths):
+            links = sorted(path.links, key=lambda lk: int(lk.frame1_no))
+            stuck = int(bool(getattr(path, "stuck", False)))
+
+            def _row(frame_no, time_s, length_px, mid, cm, contour, velocity):
+                mid = np.asarray(mid, dtype=float)
+                cm = np.asarray(cm, dtype=float)
+                return {
+                    "movie": movie,
+                    "path_id": path_id,
+                    "frame": int(frame_no),
+                    "time_s": float(time_s),
+                    "length_nm": float(length_px) * dx,
+                    "x_nm": float(mid[1]) * dx,
+                    "y_nm": float(mid[0]) * dx,
+                    "cm_x_nm": float(cm[1]) * dx,
+                    "cm_y_nm": float(cm[0]) * dx,
+                    "velocity_nm_s": velocity,
+                    "stuck": stuck,
+                    "n_points": int(len(np.asarray(contour))),
+                }
+
+            for lk in links:
+                # instant_velocity is already nm/s (and direction-corrected) after
+                # path_velocities; report its magnitude with a separate stuck flag.
+                rows.append(_row(
+                    lk.frame1_no, lk.filament1_time, lk.filament1_length,
+                    lk.filament1_midpoint, lk.filament1_cm, lk.filament1_contour,
+                    float(np.fabs(lk.instant_velocity)),
+                ))
+            # close the trajectory with the final frame (no outgoing velocity)
+            last = links[-1]
+            rows.append(_row(
+                last.frame2_no, last.filament2_time, last.filament2_length,
+                last.filament2_midpoint, last.filament2_cm, last.filament2_contour,
+                float("nan"),
+            ))
+        return rows
+
+    def contour_rows(self, movie=""):
+        """Yield one row per skeleton contour point (long format), positions in nm.
+
+        Joins to :meth:`trajectory_rows` on ``(movie, path_id, frame)``.
+        """
+        dx = self.dx
+        for path_id, path in enumerate(self.paths):
+            links = sorted(path.links, key=lambda lk: int(lk.frame1_no))
+
+            def _emit(frame_no, contour):
+                for p, (r, c) in enumerate(np.asarray(contour)):
+                    yield {
+                        "movie": movie,
+                        "path_id": path_id,
+                        "frame": int(frame_no),
+                        "point": p,
+                        "x_nm": float(c) * dx,
+                        "y_nm": float(r) * dx,
+                    }
+
+            for lk in links:
+                yield from _emit(lk.frame1_no, lk.filament1_contour)
+            last = links[-1]
+            yield from _emit(last.frame2_no, last.filament2_contour)
+
     def make_frame_links(self):
         """Link two adjacent frames (delegated to the configured linker)."""
         new_frame_links, self.dt = self.get_linker().link(

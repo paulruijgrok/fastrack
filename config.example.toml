@@ -36,6 +36,8 @@ maxvel_color = "b"
 make_movie = false
 overlay_movie = true
 cache_layout = "per-frame"            # per-frame (one .npy/frame) | per-movie (one .npz/movie)
+export_trajectories = false           # write a tidy per-movie trajectory CSV (physical units)
+export_contours = false               # also write the skeleton geometry (long-format CSV)
 # nprocs = 8                          # default: all cores
 
 [ridge]                               # used by both "ridge" and "ridge-fast"
