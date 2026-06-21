@@ -352,7 +352,10 @@ What it does:
   re-run **skips** datasets already completed successfully and unchanged; pass
   `--force` to redo everything or `--retry-failed` to retry only the failures.
   Editing a dataset's data or config changes its signature, so it re-runs
-  automatically.
+  automatically. Skipping is decided here, at the batch level — so whenever the
+  batch *does* run a dataset it fully (re)generates its results (it forces the
+  analysis), rather than letting a leftover `outputs/` tree from an earlier run
+  silently short-circuit the work.
 - **Detailed logs:** a timestamped run log plus a per-dataset log (capturing the
   pipeline's frame-by-frame output) under `--logdir` (default
   `fastrack_batch_logs/`).

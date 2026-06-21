@@ -98,19 +98,22 @@ def _fake_gliding(monkeypatch):
     import sys
     import types as _t
     mod = _t.ModuleType("fastrack.pipelines.gliding")
+    mod.calls = []
 
     def run(main_dir=None, **kw):
+        mod.calls.append((main_dir, kw))
         if "bad" in str(main_dir):
             raise RuntimeError("boom")
         if "exit" in str(main_dir):
             raise SystemExit("Directory doesn't exist. Program is exiting.")
     mod.run = run
     monkeypatch.setitem(sys.modules, "fastrack.pipelines.gliding", mod)
+    return mod
 
 
 def test_run_batch_continues_persists_and_resumes(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    _fake_gliding(monkeypatch)
+    g = _fake_gliding(monkeypatch)
     ok = _make_dataset(str(tmp_path), "ok_ds")
     bad = _make_dataset(str(tmp_path), "bad_ds")
     ex = _make_dataset(str(tmp_path), "exit_ds")
@@ -119,6 +122,8 @@ def test_run_batch_continues_persists_and_resumes(tmp_path, monkeypatch):
     logdir = str(tmp_path / "logs")
 
     out = batch.run_batch(str(man), logdir=logdir)
+    # the batch forces the pipeline so a pre-existing outputs/ tree can't no-op it
+    assert all(kw.get("force_analysis") is True for _md, kw in g.calls)
     # one success, two failures -- and the run did NOT stop at the first failure
     # (SystemExit from gliding is caught too, not allowed to kill the batch).
     assert out["results"] == {"ok": "done", "bad": "failed", "exitcase": "failed"}

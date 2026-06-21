@@ -415,6 +415,13 @@ def _run_one(spec, nprocs, ds_log):
         return "failed", "config error: %s" % exc
     if nprocs is not None:
         run_kwargs["nprocs"] = nprocs
+    # The batch is the authority on *what* runs (via the state file): once it
+    # decides to process a dataset, the pipeline should actually (re)produce the
+    # results.  Force the analysis so a pre-existing outputs/ tree from an earlier
+    # run can't make gliding.run silently no-op, and so changed inputs/config are
+    # never served from stale outputs.  "Skip what's done" happens at the batch
+    # level, not by the pipeline's internal output-exists shortcut.
+    run_kwargs["force_analysis"] = True
 
     t0 = time.time()
     try:
