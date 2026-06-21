@@ -38,11 +38,14 @@ ridge = ["ridge-detector>=0.1.3", "numba>=0.59"]
 # numerically identical to `ridge`.  Distributed as `ridge-detector-fast` and
 # installed from git (not on PyPI); it pulls in the base ridge-detector + numba.
 ridge-fast = ["ridge-detector-fast @ git+https://github.com/paulruijgrok/ridge-detector"]
+# Read .xlsx dataset manifests with fast-batch (CSV/TSV need no extra dependency).
+batch = ["openpyxl>=3.0"]
 
 [project.scripts]
 fast = "fastrack.cli:fast_main"
 lima = "fastrack.cli:lima_main"
 stack2tifs = "fastrack.cli:stack2tifs_main"
+fast-batch = "fastrack.cli:fast_batch_main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

@@ -315,6 +315,52 @@ For the loaded-motility (utrophin) series, run `fast` on that tree, then:
 lima -d outputs/<loaded_dataset_output_dir>
 ```
 
+## Batch processing many datasets (unattended)
+
+`fast-batch` runs the analysis over a whole list of datasets without supervision
+(e.g. overnight). Give it a manifest — a `.csv`/`.tsv`/`.xlsx` table with one row
+per dataset:
+
+```csv
+name,base_dir,config
+alpha_overnight,data/2024-05-01/alpha,configs/alpha.toml
+beta_default,data/2024-05-01/beta,
+```
+
+The base-directory column is required (aliases: `base_dir`, `directory`,
+`dataset`, …); `config` (a TOML, see `config.example.toml`) and `name` are
+optional. Relative paths resolve against the manifest's location. Then:
+
+```bash
+fast-batch datasets.csv                 # process the whole list
+fast-batch datasets.csv --preflight-only   # just check everything first
+fast-batch datasets.csv --smoke         # pre-flight + detect frame 0 of each
+```
+
+What it does:
+
+- **Pre-flight check** first, over the entire list: base dir exists, has movie
+  folders with `.tif` (or cached `filXYs`), the config parses, the chosen
+  detector's optional package is installed, and `./outputs` is writable. With
+  `--smoke` it also detects the first frame of each dataset to catch
+  detector/dependency errors before the long run.
+- **Never stops on one failure:** each dataset runs in isolation; any error
+  (including a hard exit from the pipeline) is logged with a full traceback and
+  the run moves on to the next dataset. Use `--stop-on-error` to opt out.
+- **Resumable:** a state file (`<logdir>/batch_state.json`) records each
+  dataset's outcome and an input/config signature, saved after every dataset. A
+  re-run **skips** datasets already completed successfully and unchanged; pass
+  `--force` to redo everything or `--retry-failed` to retry only the failures.
+  Editing a dataset's data or config changes its signature, so it re-runs
+  automatically.
+- **Detailed logs:** a timestamped run log plus a per-dataset log (capturing the
+  pipeline's frame-by-frame output) under `--logdir` (default
+  `fastrack_batch_logs/`).
+
+`.xlsx` manifests need the optional extra (`pip install '.[batch]'`, which adds
+openpyxl); `.csv`/`.tsv` need nothing beyond the base install. Per-dataset
+worker count is `-j` (default: all cores).
+
 ## Validate against the paper
 
 The key qualitative check from Aksel et al. 2015: **α-cardiac myosin glides

@@ -1,0 +1,12 @@
+# Example fast-batch manifest.  Run with:
+#     fast-batch datasets.example.csv
+#
+# One row per dataset.  Columns (header row, case-insensitive):
+#   base_dir : the dataset directory passed to `fast -d` (required)
+#   config   : optional TOML config (see config.example.toml); blank = defaults
+#   name     : optional label for logs/state; defaults to the folder name
+# Relative paths are resolved against THIS file's location. Lines starting with
+# '#' and blank lines are ignored.
+name,base_dir,config
+alpha_overnight,examples/unloaded_motility/micromanager_tifs,config.example.toml
+beta_default,examples/loaded_motility/micromanager_tifs,
