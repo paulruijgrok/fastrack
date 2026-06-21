@@ -192,3 +192,56 @@ def stack2tifs_main(argv=None):
 
     from ..io import convert
     convert.run(main_dir=args.d, min_size=args.s, frame_rate=args.f)
+
+
+# --------------------------------------------------------------------------- #
+# fast-batch (unattended multi-dataset runner)
+# --------------------------------------------------------------------------- #
+def fast_batch_main(argv=None):
+    usage = "\n".join([
+        "%(prog)s MANIFEST [options]",
+        "-" * 72,
+        "fast-batch: run FAST over many datasets unattended (overnight-safe).",
+        "",
+        "MANIFEST is a .csv/.tsv/.xlsx table with a base-directory column and an",
+        "optional 'config' (TOML) and 'name' column, one row per dataset. Each",
+        "dataset runs through the analysis; failures are logged and the run moves",
+        "on. A state file records successes so re-runs skip finished datasets.",
+        "-" * 72,
+    ])
+    parser = argparse.ArgumentParser(description="", usage=usage)
+    parser.add_argument("manifest", help="dataset list (.csv/.tsv/.xlsx)")
+    parser.add_argument("--state", default=None,
+                        help="resume state file (default: <logdir>/batch_state.json)")
+    parser.add_argument("--logdir", default="fastrack_batch_logs",
+                        help="directory for run + per-dataset logs (Default: fastrack_batch_logs)")
+    parser.add_argument("--preflight-only", action="store_true",
+                        help="only run the pre-flight checks; do not process anything")
+    parser.add_argument("--smoke", action="store_true",
+                        help="pre-flight also detects frame 0 of each dataset (slower, catches "
+                             "detector/dependency errors early)")
+    parser.add_argument("-f", "--force", action="store_true",
+                        help="re-run every dataset, ignoring saved state")
+    parser.add_argument("--retry-failed", action="store_true",
+                        help="re-run datasets previously marked failed (unchanged ones are "
+                             "otherwise skipped)")
+    parser.add_argument("--stop-on-error", action="store_true",
+                        help="abort the whole run on the first failure (default: keep going)")
+    parser.add_argument("-j", default=None, type=int, dest="nprocs",
+                        help="worker processes per dataset (Default: all cores)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="verbose console output")
+    args = parser.parse_args(argv)
+
+    from ..pipelines import batch
+    batch.run_batch(
+        manifest=args.manifest,
+        state=args.state,
+        logdir=args.logdir,
+        force=args.force,
+        retry_failed=args.retry_failed,
+        preflight_only=args.preflight_only,
+        smoke=args.smoke,
+        nprocs=args.nprocs,
+        stop_on_error=args.stop_on_error,
+        verbose=args.verbose,
+    )
