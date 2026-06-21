@@ -229,6 +229,10 @@ def fast_batch_main(argv=None):
                         help="abort the whole run on the first failure (default: keep going)")
     parser.add_argument("-j", default=None, type=int, dest="nprocs",
                         help="worker processes per dataset (Default: all cores)")
+    parser.add_argument("--num-shards", default=1, type=int,
+                        help="split the manifest into this many slices (for HPC job arrays)")
+    parser.add_argument("--shard-index", default=0, type=int,
+                        help="0-based slice this invocation should process (with --num-shards)")
     parser.add_argument("-v", "--verbose", action="store_true", help="verbose console output")
     args = parser.parse_args(argv)
 
@@ -244,4 +248,6 @@ def fast_batch_main(argv=None):
         nprocs=args.nprocs,
         stop_on_error=args.stop_on_error,
         verbose=args.verbose,
+        num_shards=args.num_shards,
+        shard_index=args.shard_index,
     )

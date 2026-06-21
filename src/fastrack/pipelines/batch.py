@@ -329,15 +329,30 @@ def _setup_logging(logdir, verbose):
 # --------------------------------------------------------------------------- #
 def run_batch(manifest, state=None, logdir="fastrack_batch_logs", force=False,
               retry_failed=False, preflight_only=False, smoke=False,
-              nprocs=None, stop_on_error=False, verbose=False):
-    """Process every dataset in ``manifest``; never stop on a single failure."""
+              nprocs=None, stop_on_error=False, verbose=False,
+              num_shards=1, shard_index=0):
+    """Process every dataset in ``manifest``; never stop on a single failure.
+
+    For HPC job arrays, ``num_shards``/``shard_index`` make each task process a
+    contiguous slice of the manifest; each shard gets its own default state file
+    so concurrent tasks don't clobber a shared one.
+    """
     master_log = _setup_logging(logdir, verbose)
     if state is None:
-        state = os.path.join(logdir, "batch_state.json")
+        suffix = "" if num_shards <= 1 else "_shard%d" % shard_index
+        state = os.path.join(logdir, "batch_state%s.json" % suffix)
 
     LOGGER.info("FASTrack batch run | manifest=%s | log=%s", manifest, master_log)
     specs = read_manifest(manifest)
-    LOGGER.info("manifest lists %d dataset(s)", len(specs))
+    total = len(specs)
+    LOGGER.info("manifest lists %d dataset(s)", total)
+
+    if num_shards and num_shards > 1:
+        import math
+        per = math.ceil(total / num_shards) if total else 0
+        specs = specs[shard_index * per:(shard_index + 1) * per]
+        LOGGER.info("shard %d/%d -> %d of %d dataset(s)",
+                    shard_index, num_shards, len(specs), total)
 
     # ----- pre-flight over the whole list ------------------------------------ #
     LOGGER.info("running pre-flight checks%s ...", " (with smoke detect)" if smoke else "")

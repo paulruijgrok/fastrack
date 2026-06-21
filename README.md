@@ -364,6 +364,15 @@ What it does:
 openpyxl); `.csv`/`.tsv` need nothing beyond the base install. Per-dataset
 worker count is `-j` (default: all cores).
 
+### On a SLURM cluster
+
+`hpc/` has ready-to-edit `sbatch` wrappers: `fast_single.sbatch` (one dataset)
+and `fast_batch_array.sbatch` (a chunked **job array** — each task processes a
+shard of the manifest with its own state file, so datasets run concurrently
+across nodes and restarts resume cleanly). See [`hpc/README.md`](hpc/README.md).
+For why the workload runs on CPU arrays rather than GPUs — and what a GPU port
+would actually involve — see [`docs/gpu_feasibility.md`](docs/gpu_feasibility.md).
+
 ## Validate against the paper
 
 The key qualitative check from Aksel et al. 2015: **α-cardiac myosin glides

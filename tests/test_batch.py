@@ -142,6 +142,26 @@ def test_run_batch_continues_persists_and_resumes(tmp_path, monkeypatch):
     assert out3["results"]["ok"] == "skipped"      # still skipped (done)
 
 
+def test_sharding_splits_manifest(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    g = _fake_gliding(monkeypatch)
+    rows = ["name,base_dir"]
+    for i in range(5):
+        rows.append("ds%d,%s" % (i, _make_dataset(str(tmp_path), "ds%d" % i)))
+    man = tmp_path / "m.csv"
+    man.write_text("\n".join(rows) + "\n")
+
+    # 5 datasets, 2 shards -> ceil(5/2)=3 then 2; per-shard state files
+    out0 = batch.run_batch(str(man), logdir=str(tmp_path / "logs"),
+                           num_shards=2, shard_index=0)
+    out1 = batch.run_batch(str(man), logdir=str(tmp_path / "logs"),
+                           num_shards=2, shard_index=1)
+    assert list(out0["results"]) == ["ds0", "ds1", "ds2"]
+    assert list(out1["results"]) == ["ds3", "ds4"]
+    assert os.path.isfile(str(tmp_path / "logs" / "batch_state_shard0.json"))
+    assert os.path.isfile(str(tmp_path / "logs" / "batch_state_shard1.json"))
+
+
 def test_preflight_only_does_not_process(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _fake_gliding(monkeypatch)
