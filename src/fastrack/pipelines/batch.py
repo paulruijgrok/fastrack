@@ -18,6 +18,7 @@ pre-flight check, and the state logic stay importable without the image stack.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import hashlib
 import json
@@ -26,7 +27,6 @@ import os
 import sys
 import time
 import traceback
-from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -407,6 +407,32 @@ def run_batch(manifest, state=None, logdir="fastrack_batch_logs", force=False,
     return _summary(specs, results)
 
 
+@contextlib.contextmanager
+def _capture_fds(path):
+    """Redirect stdout+stderr at the *file-descriptor* level to ``path``.
+
+    Unlike ``contextlib.redirect_stdout``, this also captures subprocess output
+    (ffmpeg) and C-extension output (OpenCV's TIFF warnings), which write to fds
+    1/2 directly and would otherwise leak to the console and miss the log.
+    """
+    logf = open(path, "w")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    try:
+        os.dup2(logf.fileno(), 1)
+        os.dup2(logf.fileno(), 2)
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        os.close(saved_out)
+        os.close(saved_err)
+        logf.close()
+
+
 def _run_one(spec, nprocs, ds_log):
     """Run one dataset; capture its (chatty) output to ``ds_log``. Never raises."""
     try:
@@ -426,9 +452,8 @@ def _run_one(spec, nprocs, ds_log):
     t0 = time.time()
     try:
         from . import gliding  # lazy: pulls in the image stack
-        with open(ds_log, "w") as logf:
-            with redirect_stdout(logf), redirect_stderr(logf):
-                gliding.run(main_dir=spec.base_dir, **run_kwargs)
+        with _capture_fds(ds_log):
+            gliding.run(main_dir=spec.base_dir, **run_kwargs)
     except KeyboardInterrupt:
         raise
     except (Exception, SystemExit) as exc:
