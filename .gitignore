@@ -26,3 +26,6 @@ venv/
 
 # OS / editor
 .DS_Store
+
+# fast-batch run logs / state
+fastrack_batch_logs/
