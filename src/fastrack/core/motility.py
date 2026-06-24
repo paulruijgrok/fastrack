@@ -45,6 +45,9 @@ class Motility(MotilityPlots):
     def __init__(self):
         self.elapsed_times = []
         self.dt = 1.0
+        # When set (seconds/frame), forces uniform timing and ignores embedded /
+        # metadata.txt times -- e.g. for stacks, or any run given --frame-rate.
+        self.uniform_dt = None
         self.dx = 80.65
         self.frame = None
         self.frame1 = None
@@ -189,9 +192,14 @@ class Motility(MotilityPlots):
         self.full_len_vel = self.full_len_vel[valid_length, :]
 
     def read_metadata(self):
-        # Per-frame acquisition times come from the frame source: the
-        # micro-manager source parses metadata.txt (as before); a stack reads
-        # embedded tags, else returns None (uniform-spacing fallback downstream).
+        # Forced-uniform timing (stacks, or any run given a frame rate): spacing
+        # is uniform_dt with no embedded/sidecar times.  Otherwise use the frame
+        # source's times -- mm parses metadata.txt; stacks embed none, so
+        # elapsed_times stays empty and the linker falls back to self.dt.
+        if self.uniform_dt is not None:
+            self.dt = self.uniform_dt
+            self.elapsed_times = np.array([])
+            return
         et = self.get_source().elapsed_times()
         self.elapsed_times = et if et is not None else np.array([])
 
