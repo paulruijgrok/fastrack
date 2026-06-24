@@ -684,15 +684,14 @@ class Motility(MotilityPlots):
         # Fixed field width for the right-aligned frame number (steady as digits grow).
         (num_field_w, _nh), _ = cv2.getTextSize(str(hi), font, font_scale, thick)
 
+        source = self.get_source()
         out_index = 0
         for fno in range(lo, hi + 1):
-            frame = Frame()
-            frame.directory = self.directory
-            frame.header = self.header
-            frame.tail = self.tail
-            if not frame.read_frame(fno):
+            try:
+                img = source.read(fno)
+            except Exception:
                 continue
-            canvas = self._to_uint8_bgr(frame.img)
+            canvas = self._to_uint8_bgr(img)
             h, w = canvas.shape[:2]
             for contour, stuck in per_frame.get(fno, []):
                 pts = np.asarray(contour)
