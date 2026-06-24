@@ -25,6 +25,7 @@ _CLI_TO_FIELD = {
     "legacy_linking": "legacy_linking", "fast_rank": "fast_rank",
     "morph_contrast": "morph_contrast", "detector": "detection_algorithm",
     "cache_layout": "cache_layout", "frame_rate": "frame_rate_hz",
+    "input_format": "input_format",
     "export_trajectories": "export_trajectories", "export_contours": "export_contours",
     "j": "nprocs", "v": "verbose",
     "ridge_line_widths": "line_widths", "ridge_low_contrast": "low_contrast",
@@ -93,6 +94,10 @@ def fast_main(argv=None):
     parser.add_argument("--frame-rate", default=S, type=float, dest="frame_rate",
                         help="acquisition frame rate in Hz; forces uniform timing (overrides "
                              "metadata.txt). Required for TIFF-stack input, which carries no clock")
+    parser.add_argument("--input-format", default=S, choices=["auto", "stack", "frames"],
+                        dest="input_format",
+                        help="movie input: auto-detect (default), or force 'stack' (each .tif is "
+                             "a multi-page movie) / 'frames' (micro-manager frame folders)")
     parser.add_argument("--export-trajectories", action="store_true", default=S,
                         dest="export_trajectories",
                         help="write a tidy per-movie trajectory CSV (one row per filament per "

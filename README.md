@@ -303,7 +303,30 @@ more noise-sensitive), and `-j` (lossless, scales with cores). A/B any config
 against the exact path on your own data with `tools/compare_fast_rank.py`
 (add `--morph` to include the morphological-gradient path).
 
-To convert the original stacks to frame files first (if needed):
+### Input: frame folders or TIFF stacks
+
+`fast` reads movies in two layouts, auto-detected per movie:
+
+- **micro-manager frame folders** — a directory of `img_******NNN_*_000.tif`
+  frames plus a `metadata.txt` (the original layout; timing comes from
+  `metadata.txt`).
+- **multi-page TIFF stacks** — one `.tif` file per movie, read directly (no
+  pre-split). Point `-d` at a tree of stacks *or* at a single `.tif`.
+
+```bash
+fast -d examples/unloaded_motility/stacks --frame-rate 2.19      # a tree of stacks
+fast -d .../alpha_0.04mg_ml/_2.tif --frame-rate 2.19             # one stack file
+```
+
+**Stacks need a frame rate.** A TIFF stack carries no acquisition clock, so pass
+`--frame-rate <Hz>` (or `[hardware] frame_rate_hz`); it forces uniform timing.
+Without it, velocities default to 1 s/frame. `--frame-rate` also works on frame
+folders, where it overrides `metadata.txt` (otherwise `metadata.txt` is used, so
+existing results are unchanged). Use `--input-format {auto,stack,frames}` to
+override the auto-detection. Reading a stack and its pre-split frames produces
+identical results under the same timing (covered by `tests/test_stack_pipeline.py`).
+
+The legacy `stack2tifs` pre-split is therefore optional now, but still available:
 
 ```bash
 stack2tifs -d examples/unloaded_motility/stacks

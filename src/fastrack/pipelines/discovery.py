@@ -26,30 +26,53 @@ def _is_stack_candidate(files):
     )
 
 
-def discover_movies(main_dir):
+def discover_movies(main_dir, input_format="auto"):
     """Return a list of movie dicts found under ``main_dir`` (sorted, stable).
 
     Each movie: ``{"kind": "mm"|"stack", "top_root", "exp", "input"}`` where
     ``input`` is the frame folder (mm) or the stack file (stack).  ``top_root``
     and ``exp`` are the grouping identity described in the module docstring.
+
+    ``main_dir`` may also be a single ``.tif`` stack file.  ``input_format``
+    overrides the per-folder auto-detection: ``"frames"`` treats every leaf with
+    ``.tif`` as one micro-manager movie; ``"stack"`` treats every ``.tif`` as its
+    own stack.
     """
+    # A single stack file passed directly.
+    if os.path.isfile(main_dir) and main_dir.lower().endswith((".tif", ".tiff")):
+        return [{
+            "kind": "stack",
+            "top_root": os.path.dirname(main_dir) or ".",
+            "exp": os.path.splitext(os.path.basename(main_dir))[0],
+            "input": main_dir,
+        }]
+
     movies = []
     for root, _subdirs, files in os.walk(main_dir):
         tifs = [f for f in files if f.lower().endswith(".tif")]
         mm_frames = [f for f in tifs if _MM_FRAME_RE.match(f)]
         has_filxys = any(f.startswith("filXYs") for f in files)
 
-        if mm_frames or (has_filxys and not tifs):
-            # one micro-manager movie = this leaf folder
-            movies.append({
-                "kind": "mm",
-                "top_root": os.path.dirname(root),
-                "exp": os.path.basename(root),
-                "input": root,
-            })
+        if input_format == "frames":
+            treat_as_mm = bool(tifs or has_filxys)
+        elif input_format == "stack":
+            treat_as_mm = False
+        else:                                  # auto
+            treat_as_mm = bool(mm_frames or (has_filxys and not tifs))
+
+        if treat_as_mm:
+            if tifs or has_filxys:
+                movies.append({
+                    "kind": "mm",
+                    "top_root": os.path.dirname(root),
+                    "exp": os.path.basename(root),
+                    "input": root,
+                })
         else:
-            # each non-mm .tif here is its own stack movie
-            for t in _is_stack_candidate(files):
+            # each .tif here is its own stack movie (all of them when forced)
+            stacks = (sorted(tifs) if input_format == "stack"
+                      else _is_stack_candidate(files))
+            for t in stacks:
                 movies.append({
                     "kind": "stack",
                     "top_root": root,
