@@ -29,6 +29,18 @@ def test_to_pipeline_image_matches_legacy_read():
     assert to_pipeline_image(u8).tolist() == [[0, 257, 65535]]
 
 
+def test_to_pipeline_image_equals_img_as_uint():
+    """The Phase-2 reroute is golden-master-safe only if this holds exactly."""
+    pytest.importorskip("skimage")
+    from skimage.util import img_as_uint
+    rng = np.random.default_rng(0)
+    u8 = rng.integers(0, 256, size=(8, 8), dtype=np.uint8)
+    assert np.array_equal(to_pipeline_image(u8), img_as_uint(u8))
+    # 16-bit -> the legacy cv2 IMREAD_GRAYSCALE read is (page >> 8) as uint8
+    u16 = rng.integers(0, 65536, size=(8, 8), dtype=np.uint16)
+    assert np.array_equal(to_pipeline_image(u16), img_as_uint((u16 >> 8).astype(np.uint8)))
+
+
 def test_prober_and_descriptor_roundtrip(tmp_path):
     # a folder of mm frames -> MicroManagerDirSource
     movie = tmp_path / "_1"
