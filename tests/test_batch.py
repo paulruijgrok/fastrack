@@ -118,6 +118,11 @@ def _fake_gliding(monkeypatch):
             raise SystemExit("Directory doesn't exist. Program is exiting.")
     mod.run = run
     monkeypatch.setitem(sys.modules, "fastrack.pipelines.gliding", mod)
+    # `from . import gliding` resolves via the parent package attribute once the
+    # real module has been imported (e.g. by an earlier test), so swapping
+    # sys.modules alone isn't enough -- override the attribute too.
+    import fastrack.pipelines as _pp
+    monkeypatch.setattr(_pp, "gliding", mod, raising=False)
     return mod
 
 
