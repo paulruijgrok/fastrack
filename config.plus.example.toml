@@ -1,0 +1,57 @@
+# config.plus.example.toml
+# =========================
+# Example configuration for the FASTplus directional driver (`fastplus -d DIR`).
+# Pass with:  fastplus -d ./MyLOVChar --config config.plus.example.toml
+#
+# Resolution order (last wins): built-in defaults < this file < CLI flags.
+# Every key is optional; comment a line to fall back to the built-in default
+# shown in the inline comment.
+
+# ---------------------------------------------------------------------------
+# [hardware]  Microscope / camera
+# ---------------------------------------------------------------------------
+[hardware]
+pixel_size_nm = 80.65        # default: 80.65
+# frame_rate_hz = 7.43       # set for stacks (no embedded clock); default: null
+
+# ---------------------------------------------------------------------------
+# [analysis]  Shared knobs reused from the base FAST analysis
+# ---------------------------------------------------------------------------
+[analysis]
+detection_algorithm = "entropy"   # filament detector: entropy | ridge | ridge-fast
+stuck_velocity_nm_s = 80.0        # |v| below this is "stuck"
+min_path_length = 5
+
+# ---------------------------------------------------------------------------
+# [directional]  FASTplus-specific settings
+# ---------------------------------------------------------------------------
+[directional]
+mode = "head-centric"        # head-centric | filament-centric
+
+# -- channels --
+head_channel = "red"         # point-like polarity labels
+filament_channel = "green"   # filaments
+
+# -- head detection (≈ TrackMate LoG detector) --
+head_sigma = 1.5             # Gaussian pre-blur
+head_radius = 5.0            # estimated head radius (px)
+head_quality = 5.0           # LoG quality threshold (tune per dataset)
+head_subpixel = true
+
+# -- head tracking (≈ TrackMate LinearMotionLAP) --
+head_tracking_algorithm = "kalman-lap"
+initial_search_radius = 20.0
+kalman_search_radius = 15.0
+max_frame_gap = 4
+
+# -- head <-> filament association + disambiguation --
+end_fraction = 0.15          # fraction of length from each tip counted as an "end"
+max_end_distance_nm = 500.0  # max head-to-tip distance to associate
+
+# -- two-channel registration (needs: pip install 'fastrack[plus]') --
+register_channels = true
+# channel_map = "red=heads,green=filaments"   # overrides head/filament_channel
+
+# -- per-frame averaging + kinetics --
+perturbation_times_s = [30.0, 90.0]   # external-perturbation onsets (s)
+kinetic_model = "exp_rise_decay"      # none | exp_rise | exp_decay | exp_rise_decay

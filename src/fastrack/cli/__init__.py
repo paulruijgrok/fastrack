@@ -38,6 +38,21 @@ _CLI_TO_FIELD = {
 }
 
 
+#: fastplus-only argparse dests -> flat DirectionalSettings field names.
+_PLUS_CLI_TO_FIELD = {
+    "mode": "mode", "head_channel": "head_channel",
+    "filament_channel": "filament_channel",
+    "head_sigma": "head_sigma", "head_radius": "head_radius",
+    "head_quality": "head_quality", "head_subpixel": "head_subpixel",
+    "head_tracker": "head_tracking_algorithm",
+    "initial_search": "initial_search_radius",
+    "kalman_search": "kalman_search_radius", "max_gap": "max_frame_gap",
+    "end_fraction": "end_fraction", "max_end_distance": "max_end_distance_nm",
+    "register": "register_channels", "channel_map": "channel_map",
+    "perturb": "perturbation_times_s", "kinetic_model": "kinetic_model",
+}
+
+
 # --------------------------------------------------------------------------- #
 # fast
 # --------------------------------------------------------------------------- #
@@ -259,3 +274,92 @@ def fast_batch_main(argv=None):
         num_shards=args.num_shards,
         shard_index=args.shard_index,
     )
+
+
+# --------------------------------------------------------------------------- #
+# fastplus (directional / polarity-aware two-channel analysis)
+# --------------------------------------------------------------------------- #
+def fastplus_main(argv=None):
+    usage = "\n".join([
+        "%(prog)s -d [DIRECTORY] --mode {head-centric|filament-centric}",
+        "-" * 72,
+        "FASTplus: directional (polarity-aware) gliding-assay analysis.",
+        "Two-channel polarity-labelled movies; signed (plus/minus-end) velocity.",
+        "Two-channel registration needs:  pip install 'fastrack[plus]'",
+        "-" * 72,
+    ])
+    S = argparse.SUPPRESS
+    p = argparse.ArgumentParser(description="", usage=usage)
+    p.add_argument("-d", help="top directory of the *RGB.tif movies to analyze")
+    p.add_argument("--config", nargs="*", default=[], metavar="FILE.toml",
+                   help="TOML config file(s) providing defaults; CLI flags override")
+
+    # mode + channels
+    p.add_argument("--mode", default=S, choices=["head-centric", "filament-centric"],
+                   help="head-centric (track the labels, Default) or filament-centric")
+    p.add_argument("--head-channel", default=S, choices=["red", "green", "blue"],
+                   dest="head_channel", help="channel carrying the heads (Default: red)")
+    p.add_argument("--filament-channel", default=S, choices=["red", "green", "blue"],
+                   dest="filament_channel", help="channel carrying the filaments (Default: green)")
+    p.add_argument("--channel-map", default=S, dest="channel_map",
+                   help="e.g. 'red=heads,green=filaments' (overrides --head/--filament-channel)")
+
+    # head detection (≈ TrackMate LoG)
+    p.add_argument("--head-sigma", default=S, type=float, dest="head_sigma",
+                   help="Gaussian pre-blur sigma (Default: 1.5)")
+    p.add_argument("--head-radius", default=S, type=float, dest="head_radius",
+                   help="estimated head radius in px (Default: 5.0)")
+    p.add_argument("--head-quality", default=S, type=float, dest="head_quality",
+                   help="LoG quality threshold (Default: 5.0)")
+    p.add_argument("--no-head-subpixel", dest="head_subpixel", action="store_false",
+                   default=S, help="disable subpixel localization")
+
+    # head tracking (≈ TrackMate LinearMotionLAP)
+    p.add_argument("--head-tracker", default=S, choices=["kalman-lap"],
+                   dest="head_tracker", help="head linker (Default: kalman-lap)")
+    p.add_argument("--initial-search", default=S, type=float, dest="initial_search",
+                   help="initial linking search radius px (Default: 20)")
+    p.add_argument("--kalman-search", default=S, type=float, dest="kalman_search",
+                   help="Kalman search radius px once velocity known (Default: 15)")
+    p.add_argument("--max-gap", default=S, type=int, dest="max_gap",
+                   help="max frame gap for gap closing (Default: 4)")
+
+    # association + disambiguation
+    p.add_argument("--end-fraction", default=S, type=float, dest="end_fraction",
+                   help="fraction of filament length counted as an 'end' (Default: 0.15)")
+    p.add_argument("--max-end-distance", default=S, type=float, dest="max_end_distance",
+                   help="max head-to-endpoint distance nm for association (Default: 500)")
+
+    # registration
+    p.add_argument("--register", action=argparse.BooleanOptionalAction, default=S,
+                   dest="register", help="register the two channels via optomerge (Default: on)")
+
+    # per-frame averaging + kinetics
+    p.add_argument("--perturb", nargs="*", type=float, default=S, dest="perturb",
+                   help="perturbation onset times in seconds (one per event)")
+    p.add_argument("--kinetic-model", default=S, dest="kinetic_model",
+                   choices=["none", "exp_rise", "exp_decay", "exp_rise_decay"],
+                   help="kinetic model to fit to the per-frame mean signed velocity")
+
+    # shared hardware / runtime
+    p.add_argument("-px", default=S, type=float, dest="px", help="pixel size in nm (Default: 80.65)")
+    p.add_argument("-minv", default=S, type=float, dest="minv",
+                   help="stuck-velocity threshold nm/s (Default: 80)")
+    p.add_argument("--detector", default=S, choices=["entropy", "ridge", "ridge-fast"],
+                   dest="detector", help="filament detector (Default: entropy)")
+    p.add_argument("-j", default=S, type=int, dest="j", help="worker processes (Default: all)")
+    p.add_argument("-v", action="store_true", default=S, dest="v", help="verbose output")
+    args = p.parse_args(argv)
+
+    from ..config import Settings
+    settings = Settings.from_toml(*args.config) if args.config else Settings()
+
+    mapping = {**_CLI_TO_FIELD, **_PLUS_CLI_TO_FIELD}
+    overrides = {mapping[d]: v for d, v in vars(args).items() if d in mapping}
+    # perturbation times arrive as a list; DirectionalSettings stores a tuple.
+    if "perturbation_times_s" in overrides and overrides["perturbation_times_s"] is not None:
+        overrides["perturbation_times_s"] = tuple(overrides["perturbation_times_s"])
+    settings = settings.with_overrides(**overrides)
+
+    from ..pipelines import directional
+    directional.run(main_dir=args.d, **settings.to_directional_kwargs())
