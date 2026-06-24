@@ -24,7 +24,7 @@ _CLI_TO_FIELD = {
     "lascore": "log_area_score_cutoff", "dlascore": "diff_log_area_score_cutoff",
     "legacy_linking": "legacy_linking", "fast_rank": "fast_rank",
     "morph_contrast": "morph_contrast", "detector": "detection_algorithm",
-    "cache_layout": "cache_layout",
+    "cache_layout": "cache_layout", "frame_rate": "frame_rate_hz",
     "export_trajectories": "export_trajectories", "export_contours": "export_contours",
     "j": "nprocs", "v": "verbose",
     "ridge_line_widths": "line_widths", "ridge_low_contrast": "low_contrast",
@@ -90,6 +90,9 @@ def fast_main(argv=None):
                         dest="cache_layout",
                         help="intermediate filXYs cache: 'per-frame' (one .npy per frame, default) "
                              "or 'per-movie' (a single .npz per movie)")
+    parser.add_argument("--frame-rate", default=S, type=float, dest="frame_rate",
+                        help="acquisition frame rate in Hz; forces uniform timing (overrides "
+                             "metadata.txt). Required for TIFF-stack input, which carries no clock")
     parser.add_argument("--export-trajectories", action="store_true", default=S,
                         dest="export_trajectories",
                         help="write a tidy per-movie trajectory CSV (one row per filament per "

@@ -124,7 +124,7 @@ def run(
     cache_layout="per-frame",
     export_trajectories=False,
     export_contours=False,
-    frame_rate=1.0,
+    frame_rate=None,
     nprocs=None,
     verbose=False,
 ):
@@ -301,12 +301,12 @@ def run(
                 work_dir = movie["input"]
                 source_descriptor = {
                     "kind": "mm_dir", "directory": movie["input"],
-                    "header": "img_000000", "tail": tail_tif, "frame_rate": frame_rate}
+                    "header": "img_000000", "tail": tail_tif, "frame_rate": (frame_rate or 1.0)}
             else:
                 work_dir = os.path.join(cwd, "outputs", main_out_dir, "_work", root_flat)
                 os.makedirs(work_dir, exist_ok=True)
                 source_descriptor = {
-                    "kind": "tiff_stack", "path": movie["input"], "frame_rate": frame_rate}
+                    "kind": "tiff_stack", "path": movie["input"], "frame_rate": (frame_rate or 1.0)}
             src = open_source(source_descriptor)
 
             store = STORES.create(
@@ -427,6 +427,9 @@ def run(
             # Frames are re-read (linking, overlay) via the frame source; header/
             # tail are kept for the legacy mm source path.
             new_motility.frame_source_descriptor = source_descriptor
+            # A given frame rate forces uniform timing (overrides metadata.txt /
+            # embedded times); required for stacks, which carry no clock.
+            new_motility.uniform_dt = (1.0 / frame_rate) if frame_rate else None
             new_motility.header = "img_000000"
             new_motility.tail = tail_tif
             new_motility.force_analysis = force_analysis

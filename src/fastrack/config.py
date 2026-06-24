@@ -24,6 +24,9 @@ class HardwareSettings:
     pixel_size_nm: float = 80.65
     #: Max inter-frame travel allowed for a filament (nm); the linking gate.
     max_inter_frame_distance_nm: float = 2016.25
+    #: Acquisition frame rate (Hz).  When set, forces uniform timing (overrides
+    #: metadata.txt / embedded times) -- needed for stacks, which carry no clock.
+    frame_rate_hz: Any = None
 
 
 @dataclass
@@ -180,6 +183,7 @@ class Settings:
         return {
             "pixel_size": hw.pixel_size_nm,
             "max_velocity": hw.max_inter_frame_distance_nm,
+            "frame_rate": hw.frame_rate_hz,
             "num_frames_ave": an.num_frames_ave,
             "min_path_length": an.min_path_length,
             "percent_tolerance": an.percent_tolerance,
