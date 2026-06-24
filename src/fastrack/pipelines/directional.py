@@ -219,6 +219,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         detection_algorithm="entropy", detection_params=None,
         perturbation_times_s=(), kinetic_model="none",
         force_analysis=False, nprocs=None, verbose=False,
+        limit=None, max_frames=None, frame_step=1,
         output_dir=None, **_ignored):
     """Directional analysis over every ``*RGB.tif`` movie under ``main_dir``.
 
@@ -230,13 +231,30 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
     from ..io.dual_channel import TwoChannelMovie
     from ..io.export import write_rows_csv  # tidy CSV writer (see io.export)
 
+    if not main_dir or not os.path.isdir(main_dir):
+        raise NotADirectoryError(
+            "fastplus -d: directory not found: %r\n"
+            "  (paths are resolved from the current working directory; pass an "
+            "absolute path if unsure)" % (main_dir,))
+
     movies = find_rgb_movies(main_dir)
+    if limit:
+        movies = movies[:limit]
+    if not movies:
+        print("[fastplus] no *RGB.tif movies found under %s" % main_dir)
+        print("[fastplus] (discovery matches files whose name ends in 'RGB.tif', "
+              "case-insensitive, searched recursively)")
+        return {"movies": 0, "qc": {}, "frame_average": [], "kinetics": None,
+                "output_dir": None}
     if verbose:
-        print("[fastplus] %d RGB movies under %s" % (len(movies), main_dir))
+        print("[fastplus] %d RGB movie(s) under %s" % (len(movies), main_dir))
+
     out_root = output_dir or os.path.join(main_dir, "fastplus_out")
     os.makedirs(out_root, exist_ok=True)
 
-    dt_s = (1.0 / frame_rate_hz) if frame_rate_hz else 1.0
+    # time between *analysed* frames (folds in temporal subsampling)
+    base_dt = (1.0 / frame_rate_hz) if frame_rate_hz else 1.0
+    dt_s = base_dt * max(1, int(frame_step))
     scorer = DirectionalScorer(pixel_size_nm=pixel_size_nm, dt_s=dt_s,
                                stuck_velocity_nm_s=stuck_velocity_nm_s)
     associator = HeadFilamentAssociator(
@@ -258,6 +276,14 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
                                 channel_map, register=register_channels)
         head_stack, fil_stack = movie.split()
         movie.release()
+
+        # optional temporal cropping / subsampling (memory + speed for testing)
+        if max_frames or frame_step > 1:
+            sl = slice(0, max_frames, frame_step if frame_step > 1 else None)
+            head_stack, fil_stack = head_stack[sl], fil_stack[sl]
+        if verbose:
+            print("[fastplus]     %d frames, %dx%d" %
+                  (head_stack.shape[0], head_stack.shape[1], head_stack.shape[2]))
 
         head_frames = detect_heads_in_stack(
             head_stack, gaussian_sigma=head_sigma, radius=head_radius,

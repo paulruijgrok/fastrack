@@ -341,6 +341,22 @@ def fastplus_main(argv=None):
                    choices=["none", "exp_rise", "exp_decay", "exp_rise_decay"],
                    help="kinetic model to fit to the per-frame mean signed velocity")
 
+    # timing (stacks carry no clock; set one of these to get nm/s, else nm/frame)
+    p.add_argument("--spf", default=S, type=float, dest="spf",
+                   help="seconds per frame (e.g. 1.356 for '1356mspf' data)")
+    p.add_argument("--frame-rate", default=S, type=float, dest="frame_rate_hz",
+                   help="acquisition frame rate in Hz (alternative to --spf)")
+
+    # subsetting (for quick tests on large datasets)
+    p.add_argument("--limit", default=S, type=int, dest="limit",
+                   help="process at most N movies")
+    p.add_argument("--max-frames", default=S, type=int, dest="max_frames",
+                   help="use only the first N frames of each movie")
+    p.add_argument("--frame-step", default=S, type=int, dest="frame_step",
+                   help="temporal subsampling: analyse every Kth frame")
+    p.add_argument("--output", default=S, dest="output_dir",
+                   help="output directory (Default: <main_dir>/fastplus_out)")
+
     # shared hardware / runtime
     p.add_argument("-px", default=S, type=float, dest="px", help="pixel size in nm (Default: 80.65)")
     p.add_argument("-minv", default=S, type=float, dest="minv",
@@ -357,9 +373,18 @@ def fastplus_main(argv=None):
     mapping = {**_CLI_TO_FIELD, **_PLUS_CLI_TO_FIELD}
     overrides = {mapping[d]: v for d, v in vars(args).items() if d in mapping}
     # perturbation times arrive as a list; DirectionalSettings stores a tuple.
-    if "perturbation_times_s" in overrides and overrides["perturbation_times_s"] is not None:
+    if overrides.get("perturbation_times_s") is not None:
         overrides["perturbation_times_s"] = tuple(overrides["perturbation_times_s"])
+    # --spf is sugar for the hardware frame rate (Hz); explicit --frame-rate wins.
+    if getattr(args, "spf", None) and not getattr(args, "frame_rate_hz", None):
+        overrides["frame_rate_hz"] = 1.0 / args.spf
+    elif getattr(args, "frame_rate_hz", None):
+        overrides["frame_rate_hz"] = args.frame_rate_hz
     settings = settings.with_overrides(**overrides)
 
+    # run-only knobs (not Settings fields) passed straight through
+    run_only = {k: getattr(args, k) for k in ("limit", "max_frames", "frame_step", "output_dir")
+                if getattr(args, k, S) is not S}
+
     from ..pipelines import directional
-    directional.run(main_dir=args.d, **settings.to_directional_kwargs())
+    directional.run(main_dir=args.d, **settings.to_directional_kwargs(), **run_only)

@@ -243,6 +243,24 @@ def test_head_centric_core_end_to_end():
     assert abs(paths[0].mean_signed_velocity()) < 1e-6
 
 
+def test_find_rgb_movies_recursive_case_insensitive(tmp_path=None):
+    import tempfile, os
+    from fastrack.pipelines.directional import find_rgb_movies
+    d = tempfile.mkdtemp()
+    sub = os.path.join(d, "a", "b"); os.makedirs(sub)
+    for name in ["m1 RGB.tif", "m2 rgb.tif", "skip_fil.tif", "notes.txt"]:
+        open(os.path.join(sub, name), "w").close()
+    hits = find_rgb_movies(d)
+    assert len(hits) == 2
+    assert all(h.lower().endswith("rgb.tif") for h in hits)
+
+
+def test_run_raises_on_missing_directory():
+    from fastrack.pipelines import directional
+    with pytest.raises(NotADirectoryError):
+        directional.run("/no/such/path/here", mode="head-centric")
+
+
 def test_head_centric_signed_motion_along_axis():
     from fastrack.pipelines.directional import analyze_head_centric
     # filament oriented along x; head on the +x tip; whole thing translates +x
