@@ -29,3 +29,8 @@ venv/
 
 # fast-batch run logs / state
 fastrack_batch_logs/
+
+# FASTplus directional outputs (written next to the analysed movies)
+fastplus_out/
+# Stray data tree accidentally created inside the repo by an early run
+/Data/
