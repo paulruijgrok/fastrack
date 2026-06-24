@@ -1,16 +1,35 @@
 """Signed (polarity-aware) velocity scoring (FASTplus).
 
-Given a tracked object and a fixed polar axis (minus-end -> plus-end unit
-vector), each frame-to-frame displacement is projected onto that axis: motion
-toward the plus-end is positive, motion toward the minus-end is negative.  This
-turns the unsigned speeds of the base FASTrack analysis into *directional*
-velocities.
+SIGN CONVENTION
+---------------
+The velocity is **positive when the (invisible) motors driving the gliding are
+stroking toward the (+)-end (barbed end) of the filament**, and negative when
+they stroke toward the (-)-end (pointed end).  Because surface motors propel a
+filament (-)-end-first, "motors stroking toward (+)" means the (+)-end of the
+filament trails the motion.  Expressed in terms of the fluorescent end-label
+("head") relative to the direction of motion:
 
-* :meth:`DirectionalScorer.score_head_track` -- head-centric: the head *is* the
-  marked (plus) end, and the polar axis is taken from the per-frame association
-  with an unambiguously labelled filament.
-* :meth:`DirectionalScorer.score_filament_path` -- filament-centric: a normal
-  filament path, with polarity attached from the head sitting on one tip.
+    label marks the (+)-end (e.g. gelsolin on actin barbed ends):
+        head LAGGING (at the back of the moving filament)  -> POSITIVE
+        head LEADING (at the front)                        -> NEGATIVE
+    label marks the (-)-end:
+        head LEADING                                       -> POSITIVE
+        head LAGGING                                       -> NEGATIVE
+
+Which end the label marks is set by ``head_marks_end`` ("plus" by default).
+
+IMPLEMENTATION
+--------------
+Each frame-to-frame displacement is projected onto the filament's polar axis
+(the unit vector pointing from the opposite tip toward the *labelled* tip, i.e.
+toward the head).  A projection > 0 means the head is leading.  The result is
+then multiplied by a sign factor so that the output follows the convention
+above: ``-1`` when the label marks the (+)-end, ``+1`` when it marks the (-)-end.
+
+* :meth:`DirectionalScorer.score_head_track` -- head-centric: per-frame polar
+  axis from the association with an unambiguously labelled filament.
+* :meth:`DirectionalScorer.score_filament_path` -- filament-centric: a tracked
+  filament path with a single (track-constant) polar axis.
 
 numpy only.
 """
@@ -28,16 +47,24 @@ class DirectionalScorer:
     """Project displacements onto the filament polar axis to get signed velocity."""
 
     def __init__(self, pixel_size_nm: float = 80.65, dt_s: float = 1.0,
-                 stuck_velocity_nm_s: float = 80.0):
+                 stuck_velocity_nm_s: float = 80.0, head_marks_end: str = "plus"):
         self.pixel_size_nm = float(pixel_size_nm)
         self.dt_s = float(dt_s)
         self.stuck_velocity_nm_s = float(stuck_velocity_nm_s)
+        if head_marks_end not in ("plus", "minus"):
+            raise ValueError("head_marks_end must be 'plus' or 'minus'")
+        self.head_marks_end = head_marks_end
+        #: polar axis points toward the labelled tip (head). Projection > 0 means
+        #: head leading. For a (+)-end label, head-leading is NEGATIVE, so flip.
+        self.sign = -1.0 if head_marks_end == "plus" else 1.0
 
     # ------------------------------------------------------------------ #
     def _signed_step(self, disp_px: np.ndarray, axis_unit: np.ndarray, dt: float) -> float:
-        """Signed velocity (nm/s) = projection of displacement onto polar axis."""
+        """Signed velocity (nm/s); sign follows the module's convention."""
         proj_px = float(np.dot(disp_px, axis_unit))
-        return proj_px * self.pixel_size_nm / dt if dt > 0 else 0.0
+        if dt <= 0:
+            return 0.0
+        return self.sign * proj_px * self.pixel_size_nm / dt
 
     def _times(self, frames: Sequence[int], elapsed_times: Optional[Sequence[float]]):
         if elapsed_times is not None and len(elapsed_times):

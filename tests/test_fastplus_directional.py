@@ -169,18 +169,25 @@ def test_no_head_excluded():
 # --------------------------------------------------------------------------- #
 # signed scoring
 # --------------------------------------------------------------------------- #
-def test_signed_velocity_plus_and_minus():
-    scorer = DirectionalScorer(pixel_size_nm=100.0, dt_s=1.0)
-    # axis points +x (minus->plus along +x)
+def test_sign_convention_plus_and_minus_end_labels():
+    # polar axis points +x toward the labelled tip (head); head moving +x = LEADING.
     axis = {f: np.array([1.0, 0.0]) for f in range(5)}
-    plus = [SpotRecord(frame=f, x=10.0 + 2 * f, y=5.0) for f in range(5)]   # moving +x
-    minus = [SpotRecord(frame=f, x=10.0 - 2 * f, y=5.0) for f in range(5)]  # moving -x
-    dp_plus = scorer.score_head_track(0, plus, axis)
-    dp_minus = scorer.score_head_track(1, minus, axis)
-    assert dp_plus.mean_signed_velocity() > 0
-    assert dp_minus.mean_signed_velocity() < 0
-    # 2 px/frame * 100 nm/px / 1 s = 200 nm/s
-    assert dp_plus.mean_signed_velocity() == pytest.approx(200.0, abs=1e-6)
+    leading = [SpotRecord(frame=f, x=10.0 + 2 * f, y=5.0) for f in range(5)]  # head leads
+
+    # (+)-end label: leading head -> NEGATIVE (motors stroke toward (-) end)
+    plus_scorer = DirectionalScorer(pixel_size_nm=100.0, dt_s=1.0, head_marks_end="plus")
+    dp = plus_scorer.score_head_track(0, leading, axis)
+    assert dp.mean_signed_velocity() == pytest.approx(-200.0, abs=1e-6)
+
+    # (-)-end label: same leading head -> POSITIVE (opposite sign)
+    minus_scorer = DirectionalScorer(pixel_size_nm=100.0, dt_s=1.0, head_marks_end="minus")
+    dp2 = minus_scorer.score_head_track(0, leading, axis)
+    assert dp2.mean_signed_velocity() == pytest.approx(+200.0, abs=1e-6)
+
+    # lagging head flips both
+    lagging = [SpotRecord(frame=f, x=10.0 - 2 * f, y=5.0) for f in range(5)]
+    assert plus_scorer.score_head_track(0, lagging, axis).mean_signed_velocity() > 0
+    assert minus_scorer.score_head_track(0, lagging, axis).mean_signed_velocity() < 0
 
 
 # --------------------------------------------------------------------------- #
@@ -323,20 +330,21 @@ def test_frame_average_plot_renders_with_fit():
 
 def test_head_centric_signed_motion_along_axis():
     from fastrack.pipelines.directional import analyze_head_centric
-    # filament oriented along x; head on the +x tip; whole thing translates +x
+    # filament along x; head on the labelled tip (+x); whole thing translates +x
+    # so the head LEADS. With a (+)-end label, a leading head is NEGATIVE.
     head_frames, filament_frames = [], []
     for f in range(6):
         x0 = 20.0 + 4.0 * f
         fil = _Fil((x0, 30), (x0 + 40, 30))           # tips at x0 and x0+40
         filament_frames.append([fil])
-        head = SpotRecord(frame=f, x=x0 + 40, y=30.0, quality=50)  # +x tip
+        head = SpotRecord(frame=f, x=x0 + 40, y=30.0, quality=50)  # labelled (+x) tip
         head_frames.append([head])
     tracker = HEAD_TRACKERS.create("kalman-lap")
     paths, qc = analyze_head_centric(
         head_frames, filament_frames,
-        scorer=DirectionalScorer(pixel_size_nm=100.0, dt_s=1.0),
+        scorer=DirectionalScorer(pixel_size_nm=100.0, dt_s=1.0, head_marks_end="plus"),
         associator=HeadFilamentAssociator(max_end_distance_px=6.0, end_fraction=0.25),
         classifier=PolarityClassifier(), head_tracker=tracker)
     assert len(paths) == 1
-    # moving toward the plus end at 4 px/frame * 100 nm = 400 nm/s
-    assert paths[0].mean_signed_velocity() == pytest.approx(400.0, rel=0.05)
+    # 4 px/frame * 100 nm = 400 nm/s; head leading + (+)-end label -> negative
+    assert paths[0].mean_signed_velocity() == pytest.approx(-400.0, rel=0.05)

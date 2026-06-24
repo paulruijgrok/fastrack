@@ -171,7 +171,7 @@ def save_frame_average_plot(
                     if k == 0 else "%s τ=%.2g s" % (res["model"], res["tau"]))
 
     ax.set_xlabel("time (s)")
-    ax.set_ylabel("signed velocity (nm/s)\n(+ plus-end  /  − minus-end)")
+    ax.set_ylabel("signed velocity (nm/s)\n(+ motors toward (+)/barbed end  /  − toward (−) end)")
     ax.set_title("Per-frame mean directional velocity")
     ax.legend(fontsize=8, loc="best")
     fig.tight_layout()

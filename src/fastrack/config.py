@@ -130,6 +130,13 @@ class DirectionalSettings:
     #: Max head-to-endpoint distance (nm) for a head to mark that end.
     max_end_distance_nm: float = 500.0
 
+    # -- sign convention ------------------------------------------------ #
+    #: Which polar end the fluorescent label ("head") marks: "plus" (barbed,
+    #: e.g. gelsolin on actin -- the default) or "minus" (pointed).  Velocity is
+    #: POSITIVE when the motors stroke toward the (+)-end; for a (+)-end label
+    #: that means a LAGGING head is positive (see polarity.scoring for details).
+    head_marks_end: str = "plus"
+
     # -- two-channel registration (optomerge) --------------------------- #
     register_channels: bool = True
     #: "red=heads,green=filaments" style mapping; blank = use head/filament_channel.

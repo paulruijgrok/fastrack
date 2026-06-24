@@ -15,10 +15,11 @@ pixel_size_nm = 80.65        # default: 80.65
 
 # Frame timing. RGB TIFF stacks carry no embedded clock, so set the acquisition
 # rate here to get velocities in nm/s (otherwise they come out in nm/frame).
-# Give EITHER the rate in Hz, e.g. for "1356mspf" data -> 1/1.356 = 0.7375 Hz:
-frame_rate_hz = 0.7375       # default: null (-> nm/frame). CLI: --frame-rate
-# The fastplus CLI also accepts seconds-per-frame as sugar: --spf 1.356
-# (sets frame_rate_hz = 1/1.356 internally; an explicit --frame-rate wins).
+# Give the rate in Hz. NOTE: "1356mspf" in these filenames means 135.6 ms per
+# frame (0.1356 s), i.e. ~7.375 Hz -- NOT 1.356 s:
+frame_rate_hz = 7.375        # default: null (-> nm/frame). CLI: --frame-rate
+# The fastplus CLI also accepts seconds-per-frame as sugar: --spf 0.1356
+# (sets frame_rate_hz = 1/0.1356; an explicit --frame-rate wins).
 
 # ---------------------------------------------------------------------------
 # [analysis]  Shared knobs reused from the base FAST analysis
@@ -53,6 +54,14 @@ max_frame_gap = 4
 # -- head <-> filament association + disambiguation --
 end_fraction = 0.15          # fraction of length from each tip counted as an "end"
 max_end_distance_nm = 500.0  # max head-to-tip distance to associate
+
+# -- sign convention --
+# Which polar end the label ("head") marks. For actin + gelsolin the label is on
+# the (+)/barbed end -> "plus" (default). Velocity sign is defined so that it is
+# POSITIVE when the motors stroke toward the (+)-end:
+#     "plus"  label:  head LAGGING  -> +   ,  head LEADING -> -
+#     "minus" label:  head LEADING  -> +   ,  head LAGGING -> -
+head_marks_end = "plus"      # plus | minus   (CLI: --head-marks)
 
 # -- two-channel registration (needs: pip install 'fastrack[plus]') --
 register_channels = true

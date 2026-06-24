@@ -48,6 +48,7 @@ _PLUS_CLI_TO_FIELD = {
     "initial_search": "initial_search_radius",
     "kalman_search": "kalman_search_radius", "max_gap": "max_frame_gap",
     "end_fraction": "end_fraction", "max_end_distance": "max_end_distance_nm",
+    "head_marks": "head_marks_end",
     "register": "register_channels", "channel_map": "channel_map",
     "perturb": "perturbation_times_s", "kinetic_model": "kinetic_model",
 }
@@ -329,6 +330,11 @@ def fastplus_main(argv=None):
                    help="fraction of filament length counted as an 'end' (Default: 0.15)")
     p.add_argument("--max-end-distance", default=S, type=float, dest="max_end_distance",
                    help="max head-to-endpoint distance nm for association (Default: 500)")
+    p.add_argument("--head-marks", default=S, choices=["plus", "minus"], dest="head_marks",
+                   help="which polar end the label marks: 'plus' (barbed, e.g. "
+                        "gelsolin/actin; Default) or 'minus'. Sets the velocity sign: "
+                        "+ = motors stroking toward the (+)-end (for a +end label, a "
+                        "lagging head is positive).")
 
     # registration
     p.add_argument("--register", action=argparse.BooleanOptionalAction, default=S,

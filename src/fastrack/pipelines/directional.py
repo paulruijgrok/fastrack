@@ -221,7 +221,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         head_sigma=1.5, head_radius=5.0, head_quality=5.0, head_subpixel=True,
         head_tracking_algorithm="kalman-lap", initial_search_radius=20.0,
         kalman_search_radius=15.0, max_frame_gap=4,
-        end_fraction=0.15, max_end_distance_nm=500.0,
+        end_fraction=0.15, max_end_distance_nm=500.0, head_marks_end="plus",
         pixel_size_nm=80.65, frame_rate_hz=None, max_inter_frame_distance_nm=2016.25,
         min_path_length=5, stuck_velocity_nm_s=80.0, num_frames_ave=5,
         detection_algorithm="entropy", detection_params=None,
@@ -265,7 +265,8 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
     base_dt = (1.0 / frame_rate_hz) if frame_rate_hz else 1.0
     dt_s = base_dt * max(1, int(frame_step))
     scorer = DirectionalScorer(pixel_size_nm=pixel_size_nm, dt_s=dt_s,
-                               stuck_velocity_nm_s=stuck_velocity_nm_s)
+                               stuck_velocity_nm_s=stuck_velocity_nm_s,
+                               head_marks_end=head_marks_end)
     associator = HeadFilamentAssociator(
         max_end_distance_px=max_end_distance_nm / pixel_size_nm,
         end_fraction=end_fraction)
