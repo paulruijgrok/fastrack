@@ -1,0 +1,2 @@
+name,base_dir,config
+unloaded_a,examples/unloaded_motility/micromanager_tifs,config.example.toml

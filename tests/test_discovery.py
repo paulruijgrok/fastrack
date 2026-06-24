@@ -46,6 +46,27 @@ def test_stack_and_frame_trees_share_identity(tmp_path):
     assert mm == st
 
 
+def test_input_format_override(tmp_path):
+    cond = tmp_path / "slide_2" / "alpha_0.04mg_ml"
+    _touch(str(cond / "_1.tif"))
+    _touch(str(cond / "_2.tif"))
+    # auto and stack both treat each .tif as a stack movie
+    assert [m["kind"] for m in discover_movies(str(tmp_path))] == ["stack", "stack"]
+    assert [m["kind"] for m in discover_movies(str(tmp_path), "stack")] == ["stack", "stack"]
+    # frames forces the folder to be one micro-manager movie
+    forced = discover_movies(str(tmp_path), "frames")
+    assert [(m["kind"], m["exp"]) for m in forced] == [("mm", "alpha_0.04mg_ml")]
+
+
+def test_single_tif_file_as_input(tmp_path):
+    f = tmp_path / "movie" / "_2.tif"
+    _touch(str(f))
+    movies = discover_movies(str(f))
+    assert len(movies) == 1
+    assert movies[0]["kind"] == "stack" and movies[0]["exp"] == "_2"
+    assert movies[0]["input"] == str(f)
+
+
 def test_group_by_top_root(tmp_path):
     cond = tmp_path / "alpha_0.04mg_ml"
     _touch(str(cond / "_1.tif"))

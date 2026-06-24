@@ -73,7 +73,7 @@ def test_preflight_flags_missing_dir_and_missing_tifs(tmp_path, monkeypatch):
     empty = tmp_path / "empty"
     empty.mkdir()
     probs = batch.preflight(batch.DatasetSpec(name="e", base_dir=str(empty)))
-    assert any("no movie folders" in p for p in probs)
+    assert any("no movies" in p for p in probs)
 
 
 def test_preflight_ok_and_missing_config(tmp_path, monkeypatch):
@@ -83,6 +83,16 @@ def test_preflight_ok_and_missing_config(tmp_path, monkeypatch):
     probs = batch.preflight(
         batch.DatasetSpec(name="ds", base_dir=base, config=str(tmp_path / "nope.toml")))
     assert any("config file not found" in p for p in probs)
+
+
+def test_preflight_accepts_stacks(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cond = tmp_path / "slide_2" / "alpha_0.04mg_ml"
+    cond.mkdir(parents=True)
+    _touch(str(cond / "_1.tif"))           # stack files (not mm frame names)
+    _touch(str(cond / "_2.tif"))
+    probs = batch.preflight(batch.DatasetSpec(name="ds", base_dir=str(tmp_path)))
+    assert probs == [], probs               # stacks are recognized as movies
 
 
 def test_state_roundtrip(tmp_path):
@@ -108,6 +118,11 @@ def _fake_gliding(monkeypatch):
             raise SystemExit("Directory doesn't exist. Program is exiting.")
     mod.run = run
     monkeypatch.setitem(sys.modules, "fastrack.pipelines.gliding", mod)
+    # `from . import gliding` resolves via the parent package attribute once the
+    # real module has been imported (e.g. by an earlier test), so swapping
+    # sys.modules alone isn't enough -- override the attribute too.
+    import fastrack.pipelines as _pp
+    monkeypatch.setattr(_pp, "gliding", mod, raising=False)
     return mod
 
 

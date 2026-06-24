@@ -152,33 +152,27 @@ def read_manifest(path: str) -> List[DatasetSpec]:
 # --------------------------------------------------------------------------- #
 # Signature (for resume) + pre-flight
 # --------------------------------------------------------------------------- #
-def _tif_leaf_dirs(base_dir):
-    """Yield leaf directories that look like a movie (contain .tif or filXYs)."""
-    for root, subdirs, files in os.walk(base_dir):
-        if subdirs:
-            continue
-        if any(f.endswith(".tif") for f in files) or any(
-            f.startswith("filXYs") for f in files
-        ):
-            yield root, files
-
-
 def _input_fingerprint(base_dir):
-    """Cheap (count, total_bytes, latest_mtime) over the dataset's tif files."""
-    count = 0
-    total = 0
+    """Cheap (count, total_bytes, latest_mtime) over the dataset's tif files.
+
+    Handles a base dir (a tree of movies) or a single ``.tif`` stack file.
+    """
+    if os.path.isfile(base_dir):
+        paths = [base_dir]
+    else:
+        paths = [os.path.join(r, f)
+                 for r, _s, fs in os.walk(base_dir) for f in fs
+                 if f.lower().endswith(".tif")]
+    count = total = 0
     latest = 0.0
-    for root, _subdirs, files in os.walk(base_dir):
-        for f in files:
-            if not f.endswith(".tif"):
-                continue
-            try:
-                st = os.stat(os.path.join(root, f))
-            except OSError:
-                continue
-            count += 1
-            total += st.st_size
-            latest = max(latest, st.st_mtime)
+    for p in paths:
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        count += 1
+        total += st.st_size
+        latest = max(latest, st.st_mtime)
     return count, total, latest
 
 
@@ -211,14 +205,11 @@ def preflight(spec: DatasetSpec, smoke: bool = False) -> List[str]:
     frame of the first movie to catch detector/dependency errors early.
     """
     problems: List[str] = []
-    if not os.path.isdir(spec.base_dir):
-        problems.append("base directory not found: %s" % spec.base_dir)
+    is_stack_file = (os.path.isfile(spec.base_dir)
+                     and spec.base_dir.lower().endswith((".tif", ".tiff")))
+    if not (os.path.isdir(spec.base_dir) or is_stack_file):
+        problems.append("base path not found: %s" % spec.base_dir)
         return problems  # nothing else is checkable
-
-    leaves = list(_tif_leaf_dirs(spec.base_dir))
-    if not leaves:
-        problems.append("no movie folders with .tif (or cached filXYs) found under %s"
-                        % spec.base_dir)
 
     run_kwargs = None
     if spec.config and not os.path.isfile(spec.config):
@@ -228,6 +219,14 @@ def preflight(spec: DatasetSpec, smoke: bool = False) -> List[str]:
             run_kwargs = _run_kwargs_for(spec)
         except Exception as exc:
             problems.append("config failed to parse (%s): %s" % (spec.config, exc))
+
+    # frame folders and/or TIFF stacks both count as movies
+    from .discovery import discover_movies
+    fmt = run_kwargs.get("input_format", "auto") if run_kwargs else "auto"
+    movies = discover_movies(spec.base_dir, input_format=fmt)
+    if not movies:
+        problems.append("no movies (.tif stacks or micro-manager frame folders) "
+                        "found under %s" % spec.base_dir)
 
     # detector optional dependency present?
     if run_kwargs is not None:
@@ -248,25 +247,28 @@ def preflight(spec: DatasetSpec, smoke: bool = False) -> List[str]:
     except OSError as exc:
         problems.append("cannot create ./outputs: %s" % exc)
 
-    if smoke and not problems and leaves:
-        problems.extend(_smoke_detect(spec, leaves[0], run_kwargs or {}))
+    if smoke and not problems and movies:
+        problems.extend(_smoke_detect(movies[0], run_kwargs or {}))
     return problems
 
 
-def _smoke_detect(spec, leaf, run_kwargs):
-    """Detect frame 0 of one movie; report any error (slow; opt-in)."""
-    root, files = leaf
-    tifs = sorted(f for f in files if f.endswith(".tif"))
-    if not tifs:
-        return []
+def _smoke_detect(movie, run_kwargs):
+    """Detect frame 0 of one movie via its source; report any error (opt-in)."""
+    src_path = movie["input"]
     try:
+        from ..core.input import open_movie
         from ..core.frame import Frame
         from ..core.detection import DETECTORS
-        tail = tifs[0].split("_")[2] if len(tifs[0].split("_")) > 2 else ""
+        src = open_movie(src_path)
+        if src is None:
+            return ["smoke: could not open movie %s" % src_path]
+        nums = src.frame_numbers()
+        if not nums:
+            return ["smoke: no frames in %s" % src_path]
+        img0 = src.read(nums[0])
         fr = Frame()
-        fr.directory, fr.header, fr.tail = root, "img_000000", tail
-        if not fr.read_frame(0):
-            return ["smoke: could not read frame 0 in %s" % root]
+        fr.img = img0
+        fr.width, fr.height = img0.shape
         algo = run_kwargs.get("detection_algorithm", "entropy")
         params = run_kwargs.get("detection_params", {}) or {}
         if algo == "entropy":
@@ -277,7 +279,7 @@ def _smoke_detect(spec, leaf, run_kwargs):
             det = DETECTORS.create(algo, **params)
         det.detect(fr)
     except Exception as exc:
-        return ["smoke: detection failed on %s: %s" % (root, exc)]
+        return ["smoke: detection failed on %s: %s" % (src_path, exc)]
     return []
 
 

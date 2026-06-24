@@ -9,6 +9,8 @@
 [hardware]
 pixel_size_nm = 80.65                 # camera pixel size (nm)
 max_inter_frame_distance_nm = 2016.25 # linking gate: max travel between frames (nm)
+# frame_rate_hz = 2.19                # acquisition rate (Hz); forces uniform timing
+                                      #   (overrides metadata.txt). REQUIRED for TIFF stacks.
 
 [analysis]
 num_frames_ave = 5
@@ -36,6 +38,7 @@ maxvel_color = "b"
 make_movie = false
 overlay_movie = true
 cache_layout = "per-frame"            # per-frame (one .npy/frame) | per-movie (one .npz/movie)
+input_format = "auto"                 # auto | stack (multi-page .tif) | frames (mm folders)
 export_trajectories = false           # write a tidy per-movie trajectory CSV (physical units)
 export_contours = false               # also write the skeleton geometry (long-format CSV)
 # nprocs = 8                          # default: all cores

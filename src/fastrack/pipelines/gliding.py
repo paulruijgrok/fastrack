@@ -125,6 +125,7 @@ def run(
     export_trajectories=False,
     export_contours=False,
     frame_rate=None,
+    input_format="auto",
     nprocs=None,
     verbose=False,
 ):
@@ -145,8 +146,11 @@ def run(
         # Strip a trailing path separator (either kind, for cross-platform use).
         main_dir = main_dir.rstrip("/\\")
 
-    if main_dir is None or not os.path.isdir(main_dir):
-        sys.exit("Directory doesn't exist. Program is exiting.")
+    # ``-d`` may be a directory tree of movies, or a single multi-page .tif stack.
+    is_single_stack = (main_dir is not None and os.path.isfile(main_dir)
+                       and main_dir.lower().endswith((".tif", ".tiff")))
+    if main_dir is None or not (os.path.isdir(main_dir) or is_single_stack):
+        sys.exit("Path doesn't exist. Program is exiting.")
 
     # Resolve the dataset path up front so the analysis works regardless of
     # whether the caller passed a relative or an absolute ``-d``.  Output names
@@ -156,6 +160,8 @@ def run(
     main_dir_abs = os.path.abspath(main_dir)
     anchor = os.path.dirname(main_dir_abs)
     dataset_name = os.path.basename(main_dir_abs)
+    if is_single_stack:                         # drop the .tif extension for naming
+        dataset_name = os.path.splitext(dataset_name)[0]
 
     def flat(p):
         """Dataset-relative path flattened into a single filename component."""
@@ -233,7 +239,7 @@ def run(
                 os.remove(_p)
 
     # ----- discover movies (micro-manager frame folders and/or TIFF stacks) - #
-    movies = discover_movies(main_dir)
+    movies = discover_movies(main_dir, input_format=input_format)
     for _m in movies:                       # absolutize inputs before any chdir
         _m["input"] = os.path.abspath(_m["input"])
     process_folders = group_by_top_root(movies)
