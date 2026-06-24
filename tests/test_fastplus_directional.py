@@ -261,6 +261,66 @@ def test_run_raises_on_missing_directory():
         directional.run("/no/such/path/here", mode="head-centric")
 
 
+def test_head_centric_collects_polar_by_frame_and_overlay(tmp_path=None):
+    import os, tempfile
+    from fastrack.pipelines.directional import analyze_head_centric
+    from fastrack.polarity.overlay import save_classification_montage
+    from fastrack.polarity.datamodel import PLUS_END
+
+    n_frames = 5
+    head_frames, filament_frames = [], []
+    for f in range(n_frames):
+        x0 = 20.0 + 4.0 * f
+        fil = _Fil((x0, 30), (x0 + 40, 30))
+        filament_frames.append([fil])
+        head_frames.append([SpotRecord(frame=f, x=x0 + 40, y=30.0, quality=50)])
+
+    polar_by_frame = {}
+    tracker = HEAD_TRACKERS.create("kalman-lap")
+    paths, qc = analyze_head_centric(
+        head_frames, filament_frames,
+        scorer=DirectionalScorer(pixel_size_nm=100.0, dt_s=1.0),
+        associator=HeadFilamentAssociator(max_end_distance_px=6.0, end_fraction=0.25),
+        classifier=PolarityClassifier(), head_tracker=tracker,
+        polar_by_frame=polar_by_frame)
+
+    assert set(polar_by_frame) == set(range(n_frames))
+    assert all(pf.classification == PLUS_END
+               for pfs in polar_by_frame.values() for pf in pfs)
+
+    # the montage renderer should produce a PNG (matplotlib available)
+    stack = np.zeros((n_frames, 64, 80), dtype=np.uint8)
+    out = os.path.join(tempfile.mkdtemp(), "qc_overlay.png")
+    res = save_classification_montage(stack, polar_by_frame, out, max_frames=n_frames)
+    assert res == out and os.path.exists(out) and os.path.getsize(out) > 0
+
+
+def test_montage_with_filament_contours_renders():
+    import os, tempfile
+    from fastrack.polarity.overlay import save_classification_montage
+    polar_by_frame = {0: [], 1: []}
+    fil_by_frame = {0: [_Fil((10, 10), (10, 50))], 1: [_Fil((12, 10), (12, 50))]}
+    stack = np.zeros((2, 64, 80), dtype=np.uint8)
+    out = os.path.join(tempfile.mkdtemp(), "qc_overlay.png")
+    res = save_classification_montage(stack, polar_by_frame, out, max_frames=2,
+                                      filament_by_frame=fil_by_frame)
+    assert res == out and os.path.exists(out) and os.path.getsize(out) > 0
+
+
+def test_frame_average_plot_renders_with_fit():
+    import os, tempfile
+    from fastrack.polarity.overlay import save_frame_average_plot
+    from fastrack.analysis.kinetics import KineticModelFitter, exp_rise
+    t = np.linspace(0, 60, 61)
+    mean = exp_rise(t, v0=0.0, amp=400.0, tau=8.0, t0=10.0)
+    stats = {"time_s": t, "mean": mean, "sem": np.full_like(t, 20.0)}
+    fit = KineticModelFitter([10.0]).fit(t, mean, model="exp_rise")
+    out = os.path.join(tempfile.mkdtemp(), "frame_average.png")
+    res = save_frame_average_plot(stats, out, perturbation_times_s=[10.0],
+                                  kinetics=[fit])
+    assert res == out and os.path.exists(out) and os.path.getsize(out) > 0
+
+
 def test_head_centric_signed_motion_along_axis():
     from fastrack.pipelines.directional import analyze_head_centric
     # filament oriented along x; head on the +x tip; whole thing translates +x

@@ -12,7 +12,13 @@
 # ---------------------------------------------------------------------------
 [hardware]
 pixel_size_nm = 80.65        # default: 80.65
-# frame_rate_hz = 7.43       # set for stacks (no embedded clock); default: null
+
+# Frame timing. RGB TIFF stacks carry no embedded clock, so set the acquisition
+# rate here to get velocities in nm/s (otherwise they come out in nm/frame).
+# Give EITHER the rate in Hz, e.g. for "1356mspf" data -> 1/1.356 = 0.7375 Hz:
+frame_rate_hz = 0.7375       # default: null (-> nm/frame). CLI: --frame-rate
+# The fastplus CLI also accepts seconds-per-frame as sugar: --spf 1.356
+# (sets frame_rate_hz = 1/1.356 internally; an explicit --frame-rate wins).
 
 # ---------------------------------------------------------------------------
 # [analysis]  Shared knobs reused from the base FAST analysis

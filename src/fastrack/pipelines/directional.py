@@ -43,6 +43,7 @@ def analyze_head_centric(
     classifier: PolarityClassifier,
     head_tracker,
     elapsed_times: Optional[Sequence[float]] = None,
+    polar_by_frame: Optional[dict] = None,
 ) -> Tuple[List, Counter]:
     """Head-centric directional scoring for one movie.
 
@@ -50,7 +51,9 @@ def analyze_head_centric(
     ``filament_frames[f]``  : sequence of filament-like objects (``.contour`` etc.) in frame f.
 
     Returns ``(directional_paths, qc_counts)`` where ``qc_counts`` tallies the
-    polarity classifications (plus_end / both_ends / middle / none).
+    polarity classifications (plus_end / both_ends / middle / none).  If a
+    ``polar_by_frame`` dict is given, it is filled with frame -> list of
+    classified ``PolarFilament`` (for QC overlays).
     """
     # 1. track the heads across the whole movie
     all_spots = [s for fr in head_frames for s in fr]
@@ -66,6 +69,8 @@ def analyze_head_centric(
         heads = spots_by_frame.get(f, [])
         polar = associator.associate_frame(fils, heads, f)
         classifier.classify_all(polar)
+        if polar_by_frame is not None:
+            polar_by_frame[f] = polar
         for pf in polar:
             qc[pf.classification] += 1
             if pf.is_unambiguous and pf.head_ids:
@@ -94,6 +99,7 @@ def analyze_filament_centric(
     classifier: PolarityClassifier,
     head_tracker,
     elapsed_times: Optional[Sequence[float]] = None,
+    polar_by_frame: Optional[dict] = None,
 ) -> Tuple[List, Counter]:
     """Filament-centric directional scoring for one movie.
 
@@ -121,6 +127,8 @@ def analyze_filament_centric(
             pf = polar[0] if polar else None
             if pf is not None:
                 qc[pf.classification] += 1
+                if polar_by_frame is not None:
+                    polar_by_frame.setdefault(fr, []).append(pf)
                 if pf.is_unambiguous and pf.polarity_vector is not None:
                     axis_votes.append(pf.polarity_vector)
         if not axis_votes:
@@ -220,6 +228,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         perturbation_times_s=(), kinetic_model="none",
         force_analysis=False, nprocs=None, verbose=False,
         limit=None, max_frames=None, frame_step=1,
+        overlay=False, overlay_fps=10, montage_frames=12,
         output_dir=None, **_ignored):
     """Directional analysis over every ``*RGB.tif`` movie under ``main_dir``.
 
@@ -292,15 +301,17 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
             fil_stack, detection_algorithm=detection_algorithm,
             detection_params=detection_params)
 
+        polar_by_frame = {} if overlay else None
         if mode == "filament-centric":
-            paths = _filament_centric_movie(
+            dpaths, qc = _filament_centric_movie(
                 filament_frames, head_frames, scorer, associator, classifier,
-                tracker, max_inter_frame_distance_nm / pixel_size_nm)
-            dpaths, qc = paths
+                tracker, max_inter_frame_distance_nm / pixel_size_nm,
+                polar_by_frame=polar_by_frame)
         else:
             dpaths, qc = analyze_head_centric(
                 head_frames, filament_frames, scorer=scorer, associator=associator,
-                classifier=classifier, head_tracker=tracker)
+                classifier=classifier, head_tracker=tracker,
+                polar_by_frame=polar_by_frame)
 
         total_qc.update(qc)
         aggregator.add_movie(dpaths)
@@ -311,6 +322,22 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         write_rows_csv(rows, os.path.join(mdir, "directional_paths.csv"),
                        ["path_id", "source", "frame", "time_s", "signed_velocity_nm_s"])
 
+        if overlay:
+            from ..polarity.overlay import (save_classification_montage,
+                                            save_overlay_movie)
+            fil_by_frame = {i: fl for i, fl in enumerate(filament_frames)}
+            png = save_classification_montage(
+                head_stack, polar_by_frame,
+                os.path.join(mdir, "qc_overlay.png"), max_frames=montage_frames,
+                filament_by_frame=fil_by_frame)
+            mp4 = save_overlay_movie(
+                head_stack, polar_by_frame,
+                os.path.join(mdir, "qc_overlay.mp4"), fps=overlay_fps,
+                filament_by_frame=fil_by_frame)
+            if verbose:
+                print("[fastplus]     overlay:", png or "(montage skipped)",
+                      "|", mp4 or "(movie skipped)")
+
     # combined per-frame averages across all movies
     fa_rows = aggregator.to_rows()
     write_rows_csv(fa_rows, os.path.join(out_root, "frame_average.csv"),
@@ -318,14 +345,23 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
 
     # kinetic fit
     kinetics = None
-    if kinetic_model != "none" and fa_rows:
-        st = aggregator.frame_means()
+    st = aggregator.frame_means() if fa_rows else None
+    if kinetic_model != "none" and st is not None:
         fitter = KineticModelFitter(perturbation_times_s)
         if kinetic_model == "exp_rise_decay":
             kinetics = fitter.fit_segments(st["time_s"], st["mean"])
         else:
             kinetics = [fitter.fit(st["time_s"], st["mean"], model=kinetic_model)]
         _write_kinetics(os.path.join(out_root, "kinetics.txt"), kinetics, total_qc)
+
+    # velocity-vs-time plot (always useful; overlays perturbations + fit if present)
+    if st is not None:
+        from ..polarity.overlay import save_frame_average_plot
+        plot = save_frame_average_plot(
+            st, os.path.join(out_root, "frame_average.png"),
+            perturbation_times_s=perturbation_times_s, kinetics=kinetics)
+        if verbose and plot:
+            print("[fastplus] plot ->", plot)
 
     if verbose:
         print("[fastplus] classifications:", dict(total_qc))
@@ -335,15 +371,16 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
 
 
 def _filament_centric_movie(filament_frames, head_frames, scorer, associator,
-                            classifier, tracker, max_velocity_px):
+                            classifier, tracker, max_velocity_px,
+                            polar_by_frame=None):
     """Track filaments with the greedy linker, then score signed velocity."""
-    from ..core.tracking import LINKERS
-    # Build minimal frame-like carriers for the existing linker is heavyweight;
+    # Building minimal frame-like carriers for the existing linker is heavyweight;
     # for the directional add-on we link filament centres of mass greedily here.
     paths = _greedy_cm_paths(filament_frames, max_velocity_px)
     return analyze_filament_centric(paths, head_frames, scorer=scorer,
                                     associator=associator, classifier=classifier,
-                                    head_tracker=tracker)
+                                    head_tracker=tracker,
+                                    polar_by_frame=polar_by_frame)
 
 
 def _greedy_cm_paths(filament_frames, max_velocity_px):

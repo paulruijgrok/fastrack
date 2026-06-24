@@ -357,6 +357,16 @@ def fastplus_main(argv=None):
     p.add_argument("--output", default=S, dest="output_dir",
                    help="output directory (Default: <main_dir>/fastplus_out)")
 
+    # QC overlay (heads coloured by polarity classification)
+    p.add_argument("--overlay", action="store_true", default=S, dest="overlay",
+                   help="write qc_overlay.png/.mp4 per movie: heads coloured by "
+                        "classification (green=plus_end, red=both_ends, "
+                        "orange=middle, grey=none)")
+    p.add_argument("--overlay-fps", default=S, type=int, dest="overlay_fps",
+                   help="frame rate for qc_overlay.mp4 (Default: 10)")
+    p.add_argument("--montage-frames", default=S, type=int, dest="montage_frames",
+                   help="number of frames in qc_overlay.png (Default: 12)")
+
     # shared hardware / runtime
     p.add_argument("-px", default=S, type=float, dest="px", help="pixel size in nm (Default: 80.65)")
     p.add_argument("-minv", default=S, type=float, dest="minv",
@@ -383,7 +393,9 @@ def fastplus_main(argv=None):
     settings = settings.with_overrides(**overrides)
 
     # run-only knobs (not Settings fields) passed straight through
-    run_only = {k: getattr(args, k) for k in ("limit", "max_frames", "frame_step", "output_dir")
+    run_only = {k: getattr(args, k) for k in
+                ("limit", "max_frames", "frame_step", "output_dir",
+                 "overlay", "overlay_fps", "montage_frames")
                 if getattr(args, k, S) is not S}
 
     from ..pipelines import directional
