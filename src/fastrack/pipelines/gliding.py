@@ -18,8 +18,10 @@ import numpy as np
 
 from ..core.detection import DETECTORS
 from ..core.frame import Frame
+from ..core.input import open_source
 from ..core.motility import Motility
 from ..io.stores import STORES
+from .discovery import _MM_FRAME_RE, discover_movies, group_by_top_root
 
 warnings.filterwarnings("ignore")
 
@@ -35,12 +37,11 @@ def _extract_frame(task):
     given the directory directly, matching how the original per-folder script
     set ``new_Motility.directory``.
     """
-    (directory, header, tail, frame_no, force, fast_rank, morph_contrast,
+    (work_dir, source_descriptor, frame_no, force, fast_rank, morph_contrast,
      detection_algorithm, detection_params, cache_tag) = task
     m = Motility()
-    m.directory = directory
-    m.header = header
-    m.tail = tail
+    m.directory = work_dir
+    m.frame_source_descriptor = source_descriptor
     m.fast_rank = fast_rank
     m.morph_contrast = morph_contrast
     m.detection_algorithm = detection_algorithm
@@ -62,12 +63,11 @@ def _detect_frame(task):
     already filtered out cached frames, so detection always runs (force).
     Returns ``(frame_no, filXYs_or_None, error_or_None)``.
     """
-    (directory, header, tail, frame_no, fast_rank, morph_contrast,
+    (work_dir, source_descriptor, frame_no, fast_rank, morph_contrast,
      detection_algorithm, detection_params, cache_tag) = task
     m = Motility()
-    m.directory = directory
-    m.header = header
-    m.tail = tail
+    m.directory = work_dir
+    m.frame_source_descriptor = source_descriptor
     m.fast_rank = fast_rank
     m.morph_contrast = morph_contrast
     m.detection_algorithm = detection_algorithm
@@ -124,6 +124,7 @@ def run(
     cache_layout="per-frame",
     export_trajectories=False,
     export_contours=False,
+    frame_rate=None,
     nprocs=None,
     verbose=False,
 ):
@@ -182,8 +183,11 @@ def run(
         tif_files = [x for x in files if x[-4:] == ".tif"]
         if len(tif_files) == 0:
             continue
-        first_tif = tif_files[0]
-        tail_tif = first_tif.split("_")[2]
+        # Only micro-manager per-frame files carry a "tail" (img_NNN_<tail>_000.tif);
+        # stack files (e.g. _1.tif) don't, and must not be split here.
+        mm_files = [x for x in tif_files if _MM_FRAME_RE.match(x)]
+        if mm_files:
+            tail_tif = mm_files[0].split("_")[2]
 
         # Remove spaces in directory names (they break downstream paths).
         head, tail_dir = os.path.split(root)
@@ -228,21 +232,12 @@ def run(
             if os.path.isfile(_p):
                 os.remove(_p)
 
-    # ----- discover folders to process ------------------------------------ #
-    process_folders = {}
-    for root, subFolders, files in os.walk(main_dir):
-        if len(subFolders) == 0 and (
-            len([x for x in files if x[-4:] == ".tif"]) > 0
-            or len([x for x in files if x[:6] == "filXYs"]) > 0
-        ):
-            entries = root.split(os.sep)
-            top_folder = os.sep.join(entries[:-1])
-            exp_num = entries[-1]
-            process_folders.setdefault(top_folder, []).append(exp_num)
-
+    # ----- discover movies (micro-manager frame folders and/or TIFF stacks) - #
+    movies = discover_movies(main_dir)
+    for _m in movies:                       # absolutize inputs before any chdir
+        _m["input"] = os.path.abspath(_m["input"])
+    process_folders = group_by_top_root(movies)
     sorted_top_roots = sorted(process_folders.keys())
-    for top_root in sorted_top_roots:
-        process_folders[top_root] = sorted(process_folders[top_root])
 
     combined_data_counter = 0
     number_of_frames = 0
@@ -293,66 +288,71 @@ def run(
         top_root_abs = os.path.abspath(top_root)
         os.chdir(top_root)
 
-        for final_folder in process_folders[top_root]:
-            root = os.path.join(top_root_abs, final_folder)
+        for movie in process_folders[top_root]:
+            exp = movie["exp"]
+            naming_root = os.path.join(top_root_abs, exp)
+            root = naming_root
+            root_flat = flat(naming_root)
 
-            new_Frame = Frame()
-            new_Frame.directory = final_folder
-            new_Frame.header = "img_000000"
-            new_Frame.tail = tail_tif
-            new_Frame.fast_rank = fast_rank
-            new_Frame.morph_contrast = morph_contrast
-            file_exists = new_Frame.read_frame(0)
-            frame_width = new_Frame.width
-            frame_height = new_Frame.height
-
-            if not file_exists:
-                picture_quality = "good"
-            elif detection_algorithm == "entropy":
-                picture_quality = new_Frame.check_picture_quality()
+            # ----- frame source + work dir (cache/links/intermediate) ----- #
+            # mm: the movie folder *is* the work dir (legacy, byte-identical).
+            # stack: raw .tif stays read-only; work goes under outputs/_work/.
+            if movie["kind"] == "mm":
+                work_dir = movie["input"]
+                source_descriptor = {
+                    "kind": "mm_dir", "directory": movie["input"],
+                    "header": "img_000000", "tail": tail_tif, "frame_rate": (frame_rate or 1.0)}
             else:
-                # Non-entropy detectors define their own quality gate.
-                picture_quality = DETECTORS.create(
-                    detection_algorithm, **detection_params
-                ).assess_quality(new_Frame)
+                work_dir = os.path.join(cwd, "outputs", main_out_dir, "_work", root_flat)
+                os.makedirs(work_dir, exist_ok=True)
+                source_descriptor = {
+                    "kind": "tiff_stack", "path": movie["input"], "frame_rate": (frame_rate or 1.0)}
+            src = open_source(source_descriptor)
+
+            store = STORES.create(
+                "per-movie" if cache_layout == "per-movie" else "npy")
+
+            # ----- enumerate frames (from the source, else the cache) ----- #
+            frame_nos = src.frame_numbers()
+            if not frame_nos:
+                frame_nos = store.frames(work_dir, cache_tag)
+            number_of_frames = len(frame_nos)
+            if number_of_frames == 0:
+                continue
+
+            # ----- quality check on the first frame ----------------------- #
+            try:
+                img0 = src.read(frame_nos[0])
+            except Exception:
+                img0 = None
+            if img0 is None:                       # cache-only (no raw frames)
+                picture_quality = "good"
+                frame_width, frame_height = 1002, 1004
+            else:
+                frame_width, frame_height = img0.shape
+                qframe = Frame()
+                qframe.img = img0
+                qframe.width, qframe.height = img0.shape
+                qframe.fast_rank = fast_rank
+                qframe.morph_contrast = morph_contrast
+                if detection_algorithm == "entropy":
+                    picture_quality = qframe.check_picture_quality()
+                else:
+                    picture_quality = DETECTORS.create(
+                        detection_algorithm, **detection_params).assess_quality(qframe)
             if picture_quality == "bad":
                 print("Bad picture quality in %s" % (root))
                 continue
 
-            root_flat = flat(root)
             out_vl_png_fname = os.path.join(
-                cwd, "outputs", main_out_dir, root_flat + "_length_velocity.png"
-            )
+                cwd, "outputs", main_out_dir, root_flat + "_length_velocity.png")
             out_vl_txt_fname = os.path.join(
-                cwd, "outputs", main_out_dir, root_flat + "_"
-            )
+                cwd, "outputs", main_out_dir, root_flat + "_")
             out_path_fname = os.path.join(
-                cwd, "outputs", main_out_dir, root_flat + "_paths"
-            )
+                cwd, "outputs", main_out_dir, root_flat + "_paths")
 
-            print("Processing tif files in %s" % (root))
+            print("Processing %s" % (root))
             start_t = time.time()
-
-            # ----- pick the filXYs store for the chosen layout ------------ #
-            store = STORES.create(
-                "per-movie" if cache_layout == "per-movie" else "npy")
-
-            # ----- enumerate frame numbers -------------------------------- #
-            tif_in_folder = [
-                x for x in os.listdir(final_folder) if os.path.splitext(x)[1] == ".tif"
-            ]
-            if len(tif_in_folder) > 0:
-                frame_nos = sorted(
-                    int(os.path.basename(x).split("_")[1]) for x in tif_in_folder
-                )
-            else:
-                # No tifs: fall back to whatever frames are already cached
-                # (per-frame .npy files or per-movie .npz members).
-                frame_nos = store.frames(final_folder, cache_tag)
-
-            number_of_frames = len(frame_nos)
-            if number_of_frames == 0:
-                continue
 
             # ----- per-frame filament extraction (parallel) --------------- #
             if cache_layout == "per-movie":
@@ -361,16 +361,16 @@ def run(
                 # skipped (unless forced), so peak memory is one frame in flight.
                 todo = [
                     no for no in frame_nos
-                    if force_analysis or not store.has(final_folder, cache_tag, no)
+                    if force_analysis or not store.has(work_dir, cache_tag, no)
                 ]
                 tasks = [
-                    (final_folder, "img_000000", tail_tif, no,
+                    (work_dir, source_descriptor, no,
                      fast_rank, morph_contrast, detection_algorithm,
                      detection_params, cache_tag)
                     for no in todo
                 ]
                 failures = []
-                store.open_write(final_folder, cache_tag, force=force_analysis)
+                store.open_write(work_dir, cache_tag, force=force_analysis)
                 try:
                     if nprocs > 1 and len(tasks) > 1:
                         with Pool(processes=min(nprocs, len(tasks))) as pool:
@@ -378,20 +378,20 @@ def run(
                                 if err is not None:
                                     failures.append((no, err))
                                 else:
-                                    store.write(final_folder, cache_tag, no, filXYs)
+                                    store.write(work_dir, cache_tag, no, filXYs)
                     else:
                         for t in tasks:
                             no, filXYs, err = _detect_frame(t)
                             if err is not None:
                                 failures.append((no, err))
                             else:
-                                store.write(final_folder, cache_tag, no, filXYs)
+                                store.write(work_dir, cache_tag, no, filXYs)
                 finally:
                     store.close()
                 n_tasks = len(tasks)
             else:
                 tasks = [
-                    (final_folder, "img_000000", tail_tif, no, force_analysis,
+                    (work_dir, source_descriptor, no, force_analysis,
                      fast_rank, morph_contrast, detection_algorithm,
                      detection_params, cache_tag)
                     for no in frame_nos
@@ -423,9 +423,13 @@ def run(
             new_motility.dx = 1.0 * pixel_size
             new_motility.max_velocity = 1.0 * max_velocity / pixel_size
             new_motility.num_frames = number_of_frames
-            new_motility.directory = final_folder
-            # header/tail are needed to re-read the original frames for the
-            # overlay movie (the linking phase itself only reads the filXYs cache).
+            new_motility.directory = work_dir
+            # Frames are re-read (linking, overlay) via the frame source; header/
+            # tail are kept for the legacy mm source path.
+            new_motility.frame_source_descriptor = source_descriptor
+            # A given frame rate forces uniform timing (overrides metadata.txt /
+            # embedded times); required for stacks, which carry no clock.
+            new_motility.uniform_dt = (1.0 / frame_rate) if frame_rate else None
             new_motility.header = "img_000000"
             new_motility.tail = tail_tif
             new_motility.force_analysis = force_analysis

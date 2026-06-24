@@ -45,6 +45,9 @@ class Motility(MotilityPlots):
     def __init__(self):
         self.elapsed_times = []
         self.dt = 1.0
+        # When set (seconds/frame), forces uniform timing and ignores embedded /
+        # metadata.txt times -- e.g. for stacks, or any run given --frame-rate.
+        self.uniform_dt = None
         self.dx = 80.65
         self.frame = None
         self.frame1 = None
@@ -119,6 +122,12 @@ class Motility(MotilityPlots):
         self.cache_layout = "per-frame"
         self._store = None
 
+        # Movie input.  ``frame_source_descriptor`` (a picklable dict) selects a
+        # non-default source, e.g. a TIFF stack; when unset the legacy
+        # micro-manager frame folder (directory/header/tail) is used.
+        self._frame_source = None
+        self.frame_source_descriptor = None
+
     # ----- pluggable strategy factories ----------------------------------- #
     def get_store(self):
         """Build (once) the configured filament store from ``cache_layout``."""
@@ -126,6 +135,23 @@ class Motility(MotilityPlots):
             name = "per-movie" if self.cache_layout == "per-movie" else "npy"
             self._store = STORES.create(name)
         return self._store
+
+    def get_source(self):
+        """Build (once) the movie's frame source.
+
+        Defaults to the micro-manager frame folder (byte-identical to the legacy
+        read); a stack/other source is used when ``frame_source_descriptor`` is
+        set (Phase 3 wiring).
+        """
+        if self._frame_source is None:
+            from .input import open_source
+            from .input.mm_dir import MicroManagerDirSource
+            if self.frame_source_descriptor is not None:
+                self._frame_source = open_source(self.frame_source_descriptor)
+            else:
+                self._frame_source = MicroManagerDirSource(
+                    self.directory, header=self.header, tail=self.tail)
+        return self._frame_source
 
     def get_detector(self):
         """Build the configured filament detector from the current settings.
@@ -166,20 +192,16 @@ class Motility(MotilityPlots):
         self.full_len_vel = self.full_len_vel[valid_length, :]
 
     def read_metadata(self):
-        fname = self.directory + "/metadata.txt"
-        if os.path.exists(fname):
-            with open(fname, "r") as f:
-                lines = f.readlines()
-            filtered_lines = [x for x in lines if x.find('"ElapsedTime-ms"') > 0]
-
-            self.elapsed_times = []
-            for line in filtered_lines:
-                m = re.search(r'ElapsedTime-ms":\s+(\d+),', line)
-                if m is not None:
-                    self.elapsed_times.append(float(m.group(1)))
-
-            self.elapsed_times = 0.001 * np.array(self.elapsed_times)
-            self.elapsed_times = np.sort(self.elapsed_times)
+        # Forced-uniform timing (stacks, or any run given a frame rate): spacing
+        # is uniform_dt with no embedded/sidecar times.  Otherwise use the frame
+        # source's times -- mm parses metadata.txt; stacks embed none, so
+        # elapsed_times stays empty and the linker falls back to self.dt.
+        if self.uniform_dt is not None:
+            self.dt = self.uniform_dt
+            self.elapsed_times = np.array([])
+            return
+        et = self.get_source().elapsed_times()
+        self.elapsed_times = et if et is not None else np.array([])
 
     def calc_persistence_len(self):
         self.final_corr_len = np.zeros(1000)
@@ -670,15 +692,14 @@ class Motility(MotilityPlots):
         # Fixed field width for the right-aligned frame number (steady as digits grow).
         (num_field_w, _nh), _ = cv2.getTextSize(str(hi), font, font_scale, thick)
 
+        source = self.get_source()
         out_index = 0
         for fno in range(lo, hi + 1):
-            frame = Frame()
-            frame.directory = self.directory
-            frame.header = self.header
-            frame.tail = self.tail
-            if not frame.read_frame(fno):
+            try:
+                img = source.read(fno)
+            except Exception:
                 continue
-            canvas = self._to_uint8_bgr(frame.img)
+            canvas = self._to_uint8_bgr(img)
             h, w = canvas.shape[:2]
             for contour, stuck in per_frame.get(fno, []):
                 pts = np.asarray(contour)
@@ -741,8 +762,12 @@ class Motility(MotilityPlots):
             self.frame.filXY2filaments()
             return 1
 
-        if not self.frame.read_frame(num_frame):
-            raise FileNotFoundError("File not found!")
+        # Read the raw image via the movie's frame source.  The default
+        # micro-manager source is byte-identical to the legacy read; a TIFF
+        # stack reads the same pixels straight from one file.
+        img = self.get_source().read(num_frame)
+        self.frame.img = img
+        self.frame.width, self.frame.height = img.shape
 
         # Detection is delegated to the configured strategy (default: the
         # entropy/watershed detector).  It runs low_pass -> entropy_clusters ->
