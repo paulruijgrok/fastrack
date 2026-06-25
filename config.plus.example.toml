@@ -68,5 +68,22 @@ register_channels = true
 # channel_map = "red=heads,green=filaments"   # overrides head/filament_channel
 
 # -- per-frame averaging + kinetics --
-perturbation_times_s = [30.0, 90.0]   # external-perturbation onsets (s)
+# How to find each movie's LED/perturbation switch schedule:
+#   "auto"    : per-movie sidecar (<movie>.perturb.toml) -> legacy "<base> led.csv"
+#               -> the config values below.   (Default)
+#   "sidecar" : only the per-movie sidecar file
+#   "led-csv" : only the legacy v0.1 LED files (a "<base>.csv" times file plus a
+#               "<base> led.csv" with switch times row 0, voltages row 1)
+#   "config"  : only the explicit values below (same schedule for every movie)
+#   "none"    : no perturbation
+perturbation_source = "auto"
+# Explicit schedule for the "config" source (handles N cycles). Give EITHER:
+# switch_frames = [98, 298]                 # frame indices of each switch, or
+# perturbation_times_s = [13.3, 40.4]       # switch onset times in seconds
+# perturbation_states  = [1, 0]             # state AFTER each switch; >0 = ON
+#                                           # ([1,0] = ON at 98, OFF at 298 -> rise
+#                                           #  then decay). omit -> alternate from OFF
 kinetic_model = "exp_rise_decay"      # none | exp_rise | exp_decay | exp_rise_decay
+# Central-percentile bands shaded on frame_average.png, as (lower, upper) pairs
+# from inner to outer (shaded gray/whitesmoke/silver). Default = 14-86% & 2-98%.
+percentiles = [14, 86, 2, 98]

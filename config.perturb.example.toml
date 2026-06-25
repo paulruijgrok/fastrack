@@ -1,0 +1,29 @@
+# Per-movie perturbation sidecar (FASTplus)
+# =========================================
+# Place a file named "<movie-stem>.perturb.toml" next to a raw movie to declare
+# its external-perturbation (LED) switch schedule. The stem matches the movie
+# filename without extension; a trailing " RGB" / "_RGB" is also accepted, so for
+#     mymovie 01 RGB.tif
+# any of these work:
+#     mymovie 01 RGB.perturb.toml
+#     mymovie 01.perturb.toml
+# (.perturb.json and .perturb.yaml are also supported.)
+#
+# fastplus picks this up automatically with the default --switch-source auto
+# (sidecar -> legacy "led.csv" -> config).
+
+[perturbation]
+# Give EITHER switch_frames (frame indices) OR switch_times_s (seconds).
+switch_frames = [98, 298]          # LED turns ON at 98, OFF at 298
+# switch_times_s = [13.3, 40.4]    # alternative: onset times in seconds
+# frame_interval_s = 0.1356        # only needed with switch_times_s if not on the CLI
+
+# State AFTER each switch (>0 = ON). Optional: if omitted, states alternate
+# ON/OFF starting from OFF. So for [98, 298] the default already gives [1, 0]
+# (rise then decay). This list supports any number of on/off cycles, e.g.
+#   switch_frames = [100, 200, 300, 400]
+#   states        = [1,   0,   1,   0]     # two full rise/decay cycles
+states = [1, 0]                    # ON at frame 98, OFF at frame 298
+
+# State before the first switch (default 0 = OFF).
+initial_state = 0

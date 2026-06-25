@@ -143,10 +143,21 @@ class DirectionalSettings:
     channel_map: str = ""
 
     # -- per-frame averaging + kinetics --------------------------------- #
-    #: Perturbation onset times (s) for the kinetic fit; empty = none.
+    #: How to find the perturbation (LED) switch schedule per movie:
+    #: "auto" (sidecar -> led.csv -> config), "sidecar", "led-csv", "config",
+    #: or "none".
+    perturbation_source: str = "auto"
+    #: Explicit switch frames (config source), e.g. (98, 298). Empty = unset.
+    switch_frames: tuple = ()
+    #: Explicit perturbation onset times (s) (config source). Empty = unset.
     perturbation_times_s: tuple = ()
+    #: Optional LED state after each switch (>0 = ON); empty = alternate from OFF.
+    perturbation_states: tuple = ()
     #: "none", "exp_rise", "exp_decay", or "exp_rise_decay".
     kinetic_model: str = "none"
+    #: Central-percentile bands shaded on the velocity plot, as flat (lower,
+    #: upper) pairs (inner -> outer). Default = 14-86% and 2-98% bands.
+    percentiles: tuple = (14, 86, 2, 98)
 
 
 _SECTIONS = {

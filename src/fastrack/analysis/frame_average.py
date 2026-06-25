@@ -71,6 +71,27 @@ class FrameVelocityAggregator:
             "n": np.array(n, dtype=int),
         }
 
+    def frame_percentile_bands(self, pairs):
+        """Per-frame central-percentile bands, aligned to :meth:`frames`.
+
+        ``pairs`` is a list of (lower_pct, upper_pct), e.g. ``[(14, 86), (2, 98)]``.
+        Returns a list of ``(lo_array, hi_array)`` (one per pair), each aligned
+        frame-by-frame with :meth:`frame_means`.
+        """
+        frames = self.frames()
+        bands = []
+        for lo_p, hi_p in pairs:
+            lo_arr, hi_arr = [], []
+            for f in frames:
+                vals = np.asarray(self._by_frame[f], dtype=float)
+                if vals.size:
+                    lo_arr.append(float(np.nanpercentile(vals, lo_p)))
+                    hi_arr.append(float(np.nanpercentile(vals, hi_p)))
+                else:
+                    lo_arr.append(np.nan); hi_arr.append(np.nan)
+            bands.append((np.array(lo_arr), np.array(hi_arr)))
+        return bands
+
     def to_rows(self, times_s: Optional[Dict[int, float]] = None) -> List[dict]:
         st = self.frame_means(times_s)
         return [

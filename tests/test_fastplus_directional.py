@@ -193,6 +193,22 @@ def test_sign_convention_plus_and_minus_end_labels():
 # --------------------------------------------------------------------------- #
 # per-frame averaging
 # --------------------------------------------------------------------------- #
+def test_frame_percentile_bands():
+    from fastrack.polarity.datamodel import DirectionalPath
+    agg = FrameVelocityAggregator(dt_s=1.0)
+    # frame 0 gets velocities 0..100 across many "movies"
+    for v in range(101):
+        agg.add_path(DirectionalPath(path_id=0, frames=[0], signed_velocity_nm_s=[float(v)]))
+    bands = agg.frame_percentile_bands([(14, 86), (2, 98)])
+    (lo1, hi1), (lo2, hi2) = bands
+    assert lo1[0] == pytest.approx(14.0, abs=1.0)
+    assert hi1[0] == pytest.approx(86.0, abs=1.0)
+    assert lo2[0] == pytest.approx(2.0, abs=1.0)
+    assert hi2[0] == pytest.approx(98.0, abs=1.0)
+    # outer band brackets inner band
+    assert lo2[0] <= lo1[0] and hi2[0] >= hi1[0]
+
+
 def test_frame_average_across_movies():
     from fastrack.polarity.datamodel import DirectionalPath
     agg = FrameVelocityAggregator(dt_s=1.0)
@@ -210,6 +226,134 @@ def test_frame_average_across_movies():
 # --------------------------------------------------------------------------- #
 # kinetics
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# perturbation / switch frames
+# --------------------------------------------------------------------------- #
+def test_perturbation_from_led_csv(tmp_path=None):
+    import os, tempfile, csv
+    from fastrack.analysis.perturbation import from_led_csv
+    d = tempfile.mkdtemp()
+    # 10 frames, ms timestamps; switches at frames 3 and 7 (after dropping first)
+    times = [1000.0 + 100.0 * i for i in range(11)]   # 11 rows (first dropped)
+    tcsv = os.path.join(d, "m.csv")
+    with open(tcsv, "w", newline="") as f:
+        for t in times:
+            csv.writer(f).writerow([t])
+    # times[1:] -> indices 0..9 map to times[1..10]; pick switch times at idx 3 & 7
+    st = [times[1 + 3], times[1 + 7]]
+    led = os.path.join(d, "m led.csv")
+    # row 1 = LED state BEFORE each switch (0 then on): off->on at f3, on->off at f7
+    with open(led, "w", newline="") as f:
+        w = csv.writer(f); w.writerow(st); w.writerow([0.0, 1.1])
+    pert = from_led_csv(tcsv, led)
+    assert pert is not None
+    assert list(pert.switch_frames) == [3, 7]
+    # state AFTER each switch = toggle of state-before -> on at f3, off at f7
+    assert list(pert.states) == [1.0, 0.0]
+    assert pert.initial_state == 0.0
+    segs = pert.segments(n_frames=10, frame_interval_s=1.0)
+    assert [s["model"] for s in segs] == ["exp_rise", "exp_decay"]
+    assert segs[0]["t0_s"] == 3.0 and segs[1]["t0_s"] == 7.0 and segs[1]["end_s"] == 10.0
+
+
+def _has_toml():
+    try:
+        import tomllib  # noqa: F401
+        return True
+    except ModuleNotFoundError:
+        try:
+            import tomli  # noqa: F401
+            return True
+        except ModuleNotFoundError:
+            return False
+
+
+def test_perturbation_sidecar_toml(tmp_path=None):
+    import os, tempfile
+    if not _has_toml():
+        return  # no TOML parser in this interpreter (py<3.11 without tomli)
+    from fastrack.analysis.perturbation import from_sidecar
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "m.perturb.toml")
+    open(p, "w").write("[perturbation]\nswitch_frames = [100, 200, 300, 400]\n"
+                       "states = [1, 0, 1, 0]\n")
+    pert = from_sidecar(p)
+    assert list(pert.switch_frames) == [100, 200, 300, 400]
+    assert list(pert.states) == [1, 0, 1, 0]
+
+
+def test_perturbation_segments_two_cycles():
+    from fastrack.analysis.perturbation import from_frames
+    # two full rise/decay cycles, dt = 1 s, trace 500 frames
+    pert = from_frames([100, 200, 300, 400], states=[1, 0, 1, 0])
+    segs = pert.segments(n_frames=500, frame_interval_s=1.0)
+    models = [s["model"] for s in segs]
+    assert models == ["exp_rise", "exp_decay", "exp_rise", "exp_decay"]
+    assert segs[0]["t0_s"] == 100.0 and segs[0]["end_s"] == 200.0
+    # on/off pairs
+    assert pert.on_off_frames() == [(100, 200), (300, 400)]
+
+
+def test_perturbation_resolve_prefers_sidecar(tmp_path=None):
+    import os, tempfile
+    if not _has_toml():
+        return  # no TOML parser in this interpreter (py<3.11 without tomli)
+    from fastrack.analysis import perturbation as P
+    d = tempfile.mkdtemp()
+    movie = os.path.join(d, "mymovie 01 RGB.tif")
+    open(movie, "w").close()
+    open(os.path.join(d, "mymovie 01 RGB.perturb.toml"), "w").write(
+        "[perturbation]\nswitch_frames = [42]\nstates=[1]\n")
+    pert = P.resolve(movie, source="auto")
+    assert list(pert.switch_frames) == [42]
+    assert pert.source.startswith("sidecar")
+
+
+def test_fit_schedule_two_cycles_recovers_taus():
+    import numpy as np
+    from fastrack.analysis.kinetics import KineticModelFitter, exp_rise, exp_decay
+    from fastrack.analysis.perturbation import from_frames
+    t = np.linspace(0, 40, 401)            # dt = 0.1 s
+    y = np.zeros_like(t)
+    y += np.where(t < 10, 0.0, 0.0)
+    # cycle 1: rise at t=10 (tau 2), cycle 2: decay at t=25 (tau 3)
+    rise = exp_rise(t, 0.0, 500.0, 2.0, 10.0)
+    y = rise.copy()
+    decay = exp_decay(t, 0.0, rise.max(), 3.0, 25.0)
+    y[t >= 25] = decay[t >= 25]
+    pert = from_frames([100, 250], states=[1, 0])   # frames at dt=0.1 -> 10s, 25s
+    segs = pert.segments(n_frames=401, frame_interval_s=0.1)
+    fits = KineticModelFitter.fit_schedule(t, y, segs)
+    assert len(fits) == 2
+    assert fits[0]["model"] == "exp_rise" and fits[0]["tau"] == pytest.approx(2.0, rel=0.2)
+    assert fits[1]["model"] == "exp_decay" and fits[1]["tau"] == pytest.approx(3.0, rel=0.2)
+
+
+def test_fit_continuous_is_piecewise_continuous():
+    import numpy as np
+    from fastrack.analysis.kinetics import fit_continuous, exp_rise, exp_decay
+    from fastrack.analysis.perturbation import from_frames
+    # build a continuous rise(0->500, tau 2) then decay back, dt=0.1
+    t = np.linspace(0, 40, 401)
+    rise = exp_rise(t, 0.0, 500.0, 2.0, 10.0)
+    v = rise.copy()
+    v_at_off = exp_rise(np.array([25.0]), 0.0, 500.0, 2.0, 10.0)[0]
+    v[t >= 25] = 0.0 + (v_at_off - 0.0) * np.exp(-(t[t >= 25] - 25.0) / 3.0)
+    pert = from_frames([100, 250], states=[1, 0])
+    segs = pert.segments(401, 0.1)
+    res = fit_continuous(t, v, segs)
+    assert res is not None and res["r2"] > 0.98
+    rise_c, decay_c = res["cycles"]
+    assert rise_c["tau"] == pytest.approx(2.0, rel=0.15)
+    assert decay_c["tau"] == pytest.approx(3.0, rel=0.15)
+    # continuity: decay starts exactly where the rise ended
+    assert decay_c["start_level"] == pytest.approx(rise_c["end_level"], abs=1e-9)
+    # and the sampled curve has no jump at the switch (t=25 s)
+    ct = np.asarray(res["curve_t"]); cv = np.asarray(res["curve_v"])
+    j = int(np.argmin(np.abs(ct - 25.0)))
+    assert abs(cv[j + 1] - cv[j]) < 50.0     # smooth, no step
+
+
 def test_kinetic_exp_rise_recovers_tau():
     t = np.linspace(0, 60, 61)
     truth = exp_rise(t, v0=0.0, amp=500.0, tau=10.0, t0=10.0)

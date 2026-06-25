@@ -133,13 +133,21 @@ def save_frame_average_plot(
     out_path: str,
     perturbation_times_s: Sequence[float] = (),
     kinetics: Optional[Sequence[dict]] = None,
+    lit_intervals_s: Optional[Sequence] = None,
+    fit_curve: Optional[Sequence] = None,
+    fit_label: Optional[str] = None,
+    bands: Optional[Sequence] = None,
+    band_colors: Optional[Sequence[str]] = None,
 ) -> Optional[str]:
-    """Plot mean signed velocity vs time with SEM band, perturbations, and fit.
+    """Plot mean signed velocity vs time with percentile bands, switches, and fit.
 
-    ``stats`` is the dict from :meth:`FrameVelocityAggregator.frame_means`
-    (keys: time_s, mean, sem). ``kinetics`` (optional) is the list of fit-result
-    dicts from :class:`~fastrack.analysis.kinetics.KineticModelFitter`; if given,
-    each fitted curve is overlaid.
+    ``stats`` is the dict from :meth:`FrameVelocityAggregator.frame_means`.
+    ``bands`` (optional) is a list of ``(lo_array, hi_array, label)`` central-
+    percentile bands (inner -> outer); they are shaded with ``band_colors``
+    (default ['gray','whitesmoke','silver'], outermost taking the last colour,
+    matching the original FAST plots).  If no ``bands`` are given the ±SEM band
+    is drawn instead.  ``fit_curve`` (optional) is ``(t, v)`` for a single
+    *continuous* fitted curve.
     """
     try:
         import matplotlib
@@ -152,30 +160,58 @@ def save_frame_average_plot(
     m = np.asarray(stats["mean"], float)
     sem = np.asarray(stats["sem"], float)
 
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-    ax.axhline(0, color="0.7", lw=0.8)
-    ax.fill_between(t, m - sem, m + sem, color="0.80", label="± SEM")
-    ax.plot(t, m, "-", color="0.15", lw=1.5, label="mean signed velocity")
+    # Explicit, modest font sizes (don't inherit whatever rcParams the env has),
+    # and a comfortably large axes so labels never dominate the plot.
+    FS = {"title": 13, "label": 11, "tick": 10, "legend": 9}
+    fig, ax = plt.subplots(figsize=(10, 5.5), constrained_layout=True)
+
+    ax.axhline(0, color="0.7", lw=0.8, zorder=0)
+
+    # shade "lit" (perturbation ON) intervals
+    for k, iv in enumerate(lit_intervals_s or ()):
+        ax.axvspan(iv[0], iv[1], color="tab:blue", alpha=0.10,
+                   label="light ON" if k == 0 else None, zorder=0)
+
+    # central-percentile bands (outermost drawn first / behind), else ±SEM
+    if bands:
+        palette = list(band_colors or ["gray", "whitesmoke", "silver"])
+        nb = len(bands)
+        for j in range(nb - 1, -1, -1):                 # outer (last pair) first
+            lo, hi, lbl = bands[j]
+            ci = -(nb - j)                              # outer -> palette[-1]
+            color = palette[ci] if abs(ci) <= len(palette) else "whitesmoke"
+            ax.fill_between(t, lo, hi, color=color, alpha=1.0,
+                            zorder=1 + (nb - 1 - j), label=lbl)
+    else:
+        ax.fill_between(t, m - sem, m + sem, color="0.80", label="± SEM", zorder=1)
+    ax.plot(t, m, "-", color="0.20", lw=1.2, label="mean signed velocity", zorder=5)
 
     for k, pt in enumerate(perturbation_times_s or ()):
         ax.axvline(pt, color="tab:purple", ls="--", lw=1.0,
-                   label="perturbation" if k == 0 else None)
+                   label="switch" if k == 0 else None, zorder=2)
 
-    if kinetics:
+    # preferred: a single continuous fitted curve
+    if fit_curve is not None:
+        ft, fv = np.asarray(fit_curve[0], float), np.asarray(fit_curve[1], float)
+        ax.plot(ft, fv, "-", color="tab:red", lw=2.2,
+                label=fit_label or "fit", zorder=3)
+    elif kinetics:
         from ..analysis.kinetics import KineticModelFitter
         for k, res in enumerate(kinetics):
             tt = np.linspace(res["t0"], t.max(), 200)
             yy = KineticModelFitter.predict(res["model"], tt, res)
-            ax.plot(tt, yy, "-", color="tab:red", lw=1.8,
+            ax.plot(tt, yy, "-", color="tab:red", lw=2.0,
                     label=("fit: %s τ=%.2g s" % (res["model"], res["tau"]))
-                    if k == 0 else "%s τ=%.2g s" % (res["model"], res["tau"]))
+                    if k == 0 else "%s τ=%.2g s" % (res["model"], res["tau"]),
+                    zorder=3)
 
-    ax.set_xlabel("time (s)")
-    ax.set_ylabel("signed velocity (nm/s)\n(+ motors toward (+)/barbed end  /  − toward (−) end)")
-    ax.set_title("Per-frame mean directional velocity")
-    ax.legend(fontsize=8, loc="best")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
+    ax.set_xlabel("time (s)", fontsize=FS["label"])
+    ax.set_ylabel("signed velocity (nm/s)   [+ = toward (+)-end]", fontsize=FS["label"])
+    ax.set_title("Per-frame mean directional velocity", fontsize=FS["title"])
+    ax.tick_params(labelsize=FS["tick"])
+    ax.margins(x=0.01)
+    ax.legend(fontsize=FS["legend"], loc="upper right", framealpha=0.9)
+    fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
 

@@ -50,7 +50,9 @@ _PLUS_CLI_TO_FIELD = {
     "end_fraction": "end_fraction", "max_end_distance": "max_end_distance_nm",
     "head_marks": "head_marks_end",
     "register": "register_channels", "channel_map": "channel_map",
-    "perturb": "perturbation_times_s", "kinetic_model": "kinetic_model",
+    "switch_source": "perturbation_source", "switch_frames": "switch_frames",
+    "perturb": "perturbation_times_s", "perturb_states": "perturbation_states",
+    "kinetic_model": "kinetic_model", "percentiles": "percentiles",
 }
 
 
@@ -341,11 +343,22 @@ def fastplus_main(argv=None):
                    dest="register", help="register the two channels via optomerge (Default: on)")
 
     # per-frame averaging + kinetics
+    p.add_argument("--switch-source", default=S, dest="switch_source",
+                   choices=["auto", "sidecar", "led-csv", "config", "none"],
+                   help="where to read the LED/perturbation switch schedule per movie: "
+                        "auto (sidecar -> led.csv -> config; Default), or force one.")
+    p.add_argument("--switch-frames", nargs="*", type=int, default=S, dest="switch_frames",
+                   help="explicit switch frames, e.g. --switch-frames 98 298 (config source)")
     p.add_argument("--perturb", nargs="*", type=float, default=S, dest="perturb",
-                   help="perturbation onset times in seconds (one per event)")
+                   help="explicit switch onset times in seconds (config source)")
+    p.add_argument("--perturb-states", nargs="*", type=float, default=S, dest="perturb_states",
+                   help="LED state after each switch (>0 = ON); default alternates from OFF")
     p.add_argument("--kinetic-model", default=S, dest="kinetic_model",
                    choices=["none", "exp_rise", "exp_decay", "exp_rise_decay"],
                    help="kinetic model to fit to the per-frame mean signed velocity")
+    p.add_argument("--percentiles", nargs="*", type=float, default=S, dest="percentiles",
+                   help="central-percentile bands as (lower upper) pairs, inner->outer "
+                        "(Default: 14 86 2 98). Pass nothing to disable.")
 
     # timing (stacks carry no clock; set one of these to get nm/s, else nm/frame)
     p.add_argument("--spf", default=S, type=float, dest="spf",
@@ -388,9 +401,11 @@ def fastplus_main(argv=None):
 
     mapping = {**_CLI_TO_FIELD, **_PLUS_CLI_TO_FIELD}
     overrides = {mapping[d]: v for d, v in vars(args).items() if d in mapping}
-    # perturbation times arrive as a list; DirectionalSettings stores a tuple.
-    if overrides.get("perturbation_times_s") is not None:
-        overrides["perturbation_times_s"] = tuple(overrides["perturbation_times_s"])
+    # list-valued flags arrive as lists; DirectionalSettings stores tuples.
+    for _k in ("perturbation_times_s", "switch_frames", "perturbation_states",
+               "percentiles"):
+        if overrides.get(_k) is not None:
+            overrides[_k] = tuple(overrides[_k])
     # --spf is sugar for the hardware frame rate (Hz); explicit --frame-rate wins.
     if getattr(args, "spf", None) and not getattr(args, "frame_rate_hz", None):
         overrides["frame_rate_hz"] = 1.0 / args.spf

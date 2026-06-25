@@ -18,6 +18,7 @@ are deferred so the scoring core can be unit-tested without scipy/scikit-image.
 from __future__ import annotations
 
 import os
+import warnings
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -225,7 +226,9 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         pixel_size_nm=80.65, frame_rate_hz=None, max_inter_frame_distance_nm=2016.25,
         min_path_length=5, stuck_velocity_nm_s=80.0, num_frames_ave=5,
         detection_algorithm="entropy", detection_params=None,
-        perturbation_times_s=(), kinetic_model="none",
+        perturbation_source="auto", switch_frames=(), perturbation_times_s=(),
+        perturbation_states=(), kinetic_model="none",
+        percentiles=(14, 86, 2, 98),
         force_analysis=False, nprocs=None, verbose=False,
         limit=None, max_frames=None, frame_step=1,
         overlay=False, overlay_fps=10, montage_frames=12,
@@ -239,6 +242,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
     from ..core.tracking import HEAD_TRACKERS
     from ..io.dual_channel import TwoChannelMovie
     from ..io.export import write_rows_csv  # tidy CSV writer (see io.export)
+    from ..analysis import perturbation as _pert
 
     if not main_dir or not os.path.isdir(main_dir):
         raise NotADirectoryError(
@@ -274,13 +278,40 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
 
     aggregator = FrameVelocityAggregator(dt_s=dt_s)
     total_qc: Counter = Counter()
+    combined_pert = None          # representative switch schedule for the pooled fit
 
+    # TODO(parallelism): this driver is currently single-core -- `nprocs` is
+    # accepted but unused, movies run in this serial loop, and within a movie
+    # `detect_heads_in_stack` / `detect_filaments_in_stack` iterate frames
+    # serially.  Two straightforward options for a future commit:
+    #   (a) parallelise per-frame *filament* detection with a multiprocessing
+    #       Pool, mirroring fastrack.pipelines.gliding (the dominant cost); or
+    #   (b) parallelise across movies (one process per movie) when several are
+    #       analysed, which also keeps each movie's frame order intact.
+    # Head tracking and per-frame averaging must stay on the parent (they need
+    # global frame order / cross-movie state).
     for path in movies:
         tracker = HEAD_TRACKERS.create(
             head_tracking_algorithm, initial_search_radius=initial_search_radius,
             kalman_search_radius=kalman_search_radius, max_frame_gap=max_frame_gap)
         if verbose:
             print("[fastplus]   %s" % os.path.basename(path))
+
+        # resolve this movie's external-perturbation (LED) switch schedule
+        pert = _pert.resolve(
+            path, source=perturbation_source,
+            config_switch_frames=switch_frames or None,
+            config_times_s=perturbation_times_s or None,
+            config_states=perturbation_states or None,
+            frame_interval_s=base_dt, verbose=verbose)
+        if pert:
+            if combined_pert is None:
+                combined_pert = pert
+            elif list(pert.switch_frames) != list(combined_pert.switch_frames):
+                warnings.warn(
+                    "perturbation switch frames differ across movies (%s vs %s); "
+                    "using the first for the pooled kinetic fit"
+                    % (combined_pert.switch_frames, pert.switch_frames))
 
         movie = TwoChannelMovie(path, head_channel, filament_channel,
                                 channel_map, register=register_channels)
@@ -343,24 +374,54 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
     fa_rows = aggregator.to_rows()
     write_rows_csv(fa_rows, os.path.join(out_root, "frame_average.csv"),
                    ["frame", "time_s", "mean_signed_velocity_nm_s", "sem_nm_s", "n"])
+    st = aggregator.frame_means() if fa_rows else None
+
+    # switch schedule -> seconds for fitting / plotting (frame-step independent)
+    switch_times_plot, lit_intervals = [], []
+    segments = []
+    if combined_pert and st is not None:
+        n_frames_seg = int(round(float(st["time_s"].max()) / base_dt)) + 1
+        segments = combined_pert.segments(n_frames_seg, base_dt)
+        switch_times_plot = combined_pert.switch_times_s(base_dt)
+        lit_intervals = [(a * base_dt, b * base_dt)
+                         for (a, b) in combined_pert.on_off_frames()]
 
     # kinetic fit
-    kinetics = None
-    st = aggregator.frame_means() if fa_rows else None
+    kinetics = None          # legacy per-segment list (fallback)
+    cont = None              # continuous piecewise fit (preferred)
+    fit_curve = fit_label = None
     if kinetic_model != "none" and st is not None:
-        fitter = KineticModelFitter(perturbation_times_s)
-        if kinetic_model == "exp_rise_decay":
-            kinetics = fitter.fit_segments(st["time_s"], st["mean"])
+        if segments:
+            from ..analysis.kinetics import fit_continuous
+            cont = fit_continuous(st["time_s"], st["mean"], segments)
+            if cont:
+                fit_curve = (cont["curve_t"], cont["curve_v"])
+                taus = ", ".join("τ_%s=%.2g s" % (c["kind"], c["tau"])
+                                 for c in cont["cycles"])
+                fit_label = "continuous fit (%s)" % taus
+                _write_kinetics_continuous(
+                    os.path.join(out_root, "kinetics.txt"), cont, total_qc)
         else:
+            fitter = KineticModelFitter(perturbation_times_s)
             kinetics = [fitter.fit(st["time_s"], st["mean"], model=kinetic_model)]
-        _write_kinetics(os.path.join(out_root, "kinetics.txt"), kinetics, total_qc)
+            _write_kinetics(os.path.join(out_root, "kinetics.txt"), kinetics, total_qc)
 
-    # velocity-vs-time plot (always useful; overlays perturbations + fit if present)
+    # central-percentile bands (flat lower,upper pairs -> per-frame lo/hi)
+    bands = None
+    if st is not None and percentiles:
+        flat = list(percentiles)
+        pairs = list(zip(flat[0::2], flat[1::2]))
+        raw = aggregator.frame_percentile_bands(pairs)
+        bands = [(lo, hi, "%g–%g%%" % pairs[i]) for i, (lo, hi) in enumerate(raw)]
+
+    # velocity-vs-time plot (always; overlays switches, lit regions, fit if present)
     if st is not None:
         from ..polarity.overlay import save_frame_average_plot
         plot = save_frame_average_plot(
             st, os.path.join(out_root, "frame_average.png"),
-            perturbation_times_s=perturbation_times_s, kinetics=kinetics)
+            perturbation_times_s=switch_times_plot, kinetics=kinetics,
+            lit_intervals_s=lit_intervals, fit_curve=fit_curve, fit_label=fit_label,
+            bands=bands)
         if verbose and plot:
             print("[fastplus] plot ->", plot)
 
@@ -368,7 +429,8 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         print("[fastplus] classifications:", dict(total_qc))
         print("[fastplus] outputs ->", out_root)
     return {"movies": len(movies), "qc": dict(total_qc),
-            "frame_average": fa_rows, "kinetics": kinetics, "output_dir": out_root}
+            "frame_average": fa_rows, "kinetics": cont or kinetics,
+            "output_dir": out_root}
 
 
 def _filament_centric_movie(filament_frames, head_frames, scorer, associator,
@@ -432,3 +494,18 @@ def _write_kinetics(path, kinetics, qc):
         for k in kinetics:
             fh.write("model=%s  t0=%.3g  v0=%.4g  amp=%.4g  tau=%.4g  R2=%.3f  n=%d\n"
                      % (k["model"], k["t0"], k["v0"], k["amp"], k["tau"], k["r2"], k["n"]))
+
+
+def _write_kinetics_continuous(path, cont, qc):
+    """Write the continuous piecewise fit (one shared dark baseline A0)."""
+    with open(path, "w") as fh:
+        fh.write("FASTplus continuous piecewise kinetic fit\n")
+        fh.write("=========================================\n")
+        fh.write("classifications: %s\n" % dict(qc))
+        fh.write("dark baseline A0 = %.4g nm/s   overall R2 = %.3f\n\n"
+                 % (cont["A0"], cont["r2"]))
+        fh.write("%-6s %-6s %10s %12s %12s %10s\n" %
+                 ("cycle", "kind", "tau(s)", "start(nm/s)", "level(nm/s)", "t0(s)"))
+        for i, c in enumerate(cont["cycles"]):
+            fh.write("%-6d %-6s %10.3g %12.1f %12.1f %10.2f\n" %
+                     (i, c["kind"], c["tau"], c["start_level"], c["level"], c["t0_s"]))
