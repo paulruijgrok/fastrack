@@ -13,6 +13,31 @@ replaces two external dependencies:
   no external tool to install.
 - **Movie encoding:** `avconv` is replaced by `ffmpeg`.
 
+## Quickstart
+
+New to Python? Install [Miniforge](https://github.com/conda-forge/miniforge),
+open a fresh terminal, then:
+
+```bash
+mamba create -n fastrack python=3.11      # one-time: make an environment
+conda activate fastrack                   # do this in each new terminal
+git clone https://github.com/paulruijgrok/fastrack.git
+cd fastrack
+pip install -e .                          # install FASTrack + the `fast` command
+fast --help                               # check it works
+```
+
+Then run the analysis on a folder of movies:
+
+```bash
+fast -d /path/to/your/movies
+```
+
+That's the standard single-colour workflow. See [Install](#install) for the full
+details (and the pip/venv alternative), and
+[FASTplus](#fastplus--directional-polarity-aware-analysis-optional) for the
+two-colour, polarity-aware mode.
+
 ## Package structure
 
 The code uses a `src/` layout and is organized into logical sub-packages, each
@@ -20,31 +45,42 @@ module kept to a modest size:
 
 ```
 src/fastrack/
-├── config.py            # layered Settings (hardware / analysis / plotting / runtime)
+├── config.py            # layered Settings (hardware / analysis / plotting / runtime / directional)
 ├── datamodel.py         # FilamentRecord + cross-frame FilamentTable
 ├── registry.py          # name->factory registry behind every pluggable seam
 ├── motility.py          # back-compat shim (re-exports the old names)
 ├── core/
 │   ├── frame.py island.py filament.py link.py   # image-processing objects
 │   ├── motility.py                              # per-movie analysis driver
-│   ├── detection/       # Detector interface + entropy/watershed implementation
-│   └── tracking/        # Linker interface + greedy (incl. legacy) implementation
+│   ├── detection/       # Detector interface + entropy/watershed + ridge detectors
+│   ├── tracking/        # Linker interface + greedy (incl. legacy) linker
+│   └── input/           # movie input adapters (micro-manager dirs, TIFF stacks)
 ├── analysis/            # fitting, velocity metrics, geometry (pure numeric)
-├── io/                  # images, stores (npy), export (csv), movie (ffmpeg)
+├── io/                  # images, stores (npy/npz), export (csv), movie (ffmpeg)
 ├── viz/                 # plotparams + the length-velocity / 2D-path plots
-├── pipelines/           # gliding (the `fast` driver) and loaded (LIMA)
-└── cli/                 # console entry points: fast, lima, stack2tifs
+├── pipelines/           # gliding (the `fast` driver), loaded (LIMA), batch
+└── cli/                 # console entry points: fast, lima, stack2tifs, fast-batch
 ```
 
 Three things are pluggable via a registry + a `Settings` field, so new variants
 are added without touching call sites: **filament detection**
-(`core/detection`, e.g. a future low-SNR detector), **frame-to-frame tracking**
+(`core/detection`, e.g. the optional ridge detector), **frame-to-frame tracking**
 (`core/tracking`), and **output** (`io/movie` writers, `io/stores` backends,
 `io/export` formats over the `FilamentTable`).  New analysis workflows are added
 as modules under `pipelines/`.  See "Extending" below.
 
 The original monolithic `fastrack.motility` import still works via a
 compatibility shim that re-exports the names from their new locations.
+
+**FASTplus directional add-on.** An opt-in mode for two-colour, polarity-labelled
+movies (signed plus-/minus-end velocity + kinetics) adds the `polarity/`
+sub-package and a few modules alongside the core (`core/detection/heads.py`,
+`core/tracking/head_tracker.py`, `io/dual_channel.py`,
+`analysis/{frame_average,kinetics,perturbation}.py`,
+`pipelines/directional.py`) plus the `fastplus` command. These ship with the
+package but are only used in directional mode — see
+[FASTplus directional analysis](#fastplus--directional-polarity-aware-analysis-optional)
+and **[docs/fastplus.md](docs/fastplus.md)**.
 
 ## Test data not included
 
@@ -58,7 +94,69 @@ https://github.com/turalaksel/FAST.
 
 ## Install
 
-The package runs on macOS, Linux, and Windows. From the repository root:
+FASTrack runs on macOS, Linux, and Windows. **If you are new to Python, use the
+conda route below** — it installs the scientific stack (and `ffmpeg`) as
+prebuilt binaries, which avoids the compiler/build errors that trip people up
+with a bare `pip` install.
+
+### Recommended: Miniforge + conda environment
+
+**1. Install Miniforge** (a small, free conda installer that defaults to the
+`conda-forge` package channel and ships the fast `mamba` solver). Download the
+installer for your OS from <https://github.com/conda-forge/miniforge> and run it,
+accepting the defaults. After installing, **open a new terminal** so the `conda`
+command is available. (On Windows, use the "Miniforge Prompt" that was added to
+the Start menu.)
+
+You can use `mamba` (faster) or `conda` interchangeably in the commands below —
+Miniforge provides both.
+
+**2. Create and activate an environment** for FASTrack (Python 3.11):
+
+```bash
+mamba create -n fastrack python=3.11
+conda activate fastrack
+```
+
+You will run FASTrack from inside this `fastrack` environment; activate it
+(`conda activate fastrack`) each time you open a new terminal. Keeping FASTrack
+in its own environment means it can't clash with other Python tools.
+
+**3. Get the code and install it.** If you have `git`:
+
+```bash
+git clone https://github.com/paulruijgrok/fastrack.git
+cd fastrack
+pip install -e .
+```
+
+(No git? Download the repository ZIP from GitHub, unzip it, then `cd` into the
+folder and run `pip install -e .`.) The `-e` makes it an *editable* install, so
+`git pull`ing updates takes effect without reinstalling.
+
+This installs the runtime dependencies (numpy, scipy, scikit-image,
+opencv-python, matplotlib, imageio, pillow) and the command-line tools
+`fast`, `lima`, `stack2tifs`, and `fast-batch`.
+
+**4. (Optional) Install ffmpeg** — only needed to render tracking movies
+(`fast -m` / `--overlay-movie`). With conda this is one cross-platform command:
+
+```bash
+mamba install -c conda-forge ffmpeg
+```
+
+**5. Check it worked:**
+
+```bash
+fast --help            # should print the usage message
+```
+
+### Advanced alternative: pip + venv (no conda)
+
+If you already manage Python yourself and have a working build toolchain, a plain
+virtual environment works too. Note you may need to install `ffmpeg` separately
+(see below), and on some systems compiling a dependency wheel can fail — in which
+case the conda route above is the easy fix.
 
 **macOS / Linux**
 
@@ -76,9 +174,14 @@ py -m venv .venv
 pip install -e .
 ```
 
-This installs the runtime dependencies (numpy, scipy, scikit-image,
-opencv-python, matplotlib, imageio, pillow) and the three command-line tools
-`fast`, `lima`, and `stack2tifs`.
+### Optional extras
+
+FASTrack keeps the default install lean; extra features are opt-in:
+
+```bash
+pip install -e '.[ridge-fast]'   # faster ridge-detection filament detector (below)
+pip install -e '.[plus]'         # FASTplus directional analysis (see docs/fastplus.md)
+```
 
 ### Optional: ridge-detection filament detector
 
@@ -155,6 +258,37 @@ intermediate and removed after encoding. If ffmpeg is not found, analysis still
 runs — only the optional tracking movie is skipped, with a notice. Skeleton/path
 image compositing is done in pure Python (Pillow), so no ImageMagick install is
 required on any platform.
+
+## FASTplus — directional (polarity-aware) analysis (optional)
+
+**FASTplus** extends FASTrack to **two-colour, polarity-labelled** gliding
+assays. One channel holds the filaments (as in standard FASTrack); the other
+labels one polar end of each filament with a point-like "head" (e.g. gelsolin on
+actin barbed ends). FASTplus detects and tracks the heads, decides which
+filaments are *unambiguously* labelled (exactly one head, on one end), and scores
+motion as **signed velocity** — positive when the motors stroke toward the
+(+)/barbed end, negative toward the (−) end. It can also average velocity
+per-frame across replicate movies and fit the kinetics of an external
+perturbation (e.g. an optogenetic light pulse) with a continuous
+exponential-rise/decay model.
+
+Quick start:
+
+```bash
+pip install -e '.[plus]'         # adds optomerge (channel registration) + tifffile
+fastplus -d <DIR_OF_RGB_TIFFS> --mode head-centric --head-channel red \
+    --head-quality 8 --spf 0.1356 --kinetic-model exp_rise_decay -v
+```
+
+The directional code ships with the package; the `[plus]` extra only adds the
+two-colour **channel-registration** dependency (`optomerge`). On already-aligned
+data you can run with `--no-register` and skip the extra entirely.
+
+**Full documentation — concept, installation, CLI/config reference,
+perturbation-timing input, outputs, and the parallel benchmark — is in
+[docs/fastplus.md](docs/fastplus.md).** Design and verification notes:
+[docs/PR_fastplus_directional.md](docs/PR_fastplus_directional.md),
+[docs/fastplus_parallel_verification.md](docs/fastplus_parallel_verification.md).
 
 ## Run on the test dataset
 
