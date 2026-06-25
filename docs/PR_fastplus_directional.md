@@ -6,7 +6,7 @@ the package scores gliding motion as **signed** velocity — plus-end- vs
 minus-end-directed — and fits the kinetics of optogenetic (LED) perturbations.
 
 Branch: `fastplus-directional` → `main`.
-7 commits · 27 files · ~3.8k LOC added · default install and existing `fast`
+8 commits · 28 files · ~3.9k lines added · default install and existing `fast`
 behaviour unchanged.
 
 ---
@@ -30,19 +30,21 @@ call sites**:
   `HEAD_TRACKERS`, `PIPELINES`); selected by name via `Settings`.
 - A new `DirectionalSettings` section plugs into the layered `Settings`; a
   `fastplus` console entry point mirrors the `fast` CLI conventions.
-- Heavy / niche dependencies (two-channel registration via `optomerge`,
-  `tifffile`) are isolated behind a `pip install 'fastrack[plus]'` extra, exactly
-  like the existing `ridge` extra. The numpy-only core needs nothing new.
+- Niche dependencies (`optomerge` for two-channel registration, `tifffile` for
+  robust multi-page TIFF IO) are isolated behind a `pip install 'fastrack[plus]'`
+  extra, exactly like the existing `ridge` extra. The numpy-only core needs
+  nothing new.
 
 ## What's included (maps to the original design requirements)
 
-1. **Filament-centric directional tracking** — normal filament tracking, with a
-   sign attached from the head on one tip (`pipelines/directional.py`,
-   `gliding-directional`).
-2. **Head-centric tracking** — track the point-like heads; associate each head
-   track per frame with an unambiguously labelled filament; score directionality.
-   The high-density / frequent-crossing regime of the original data
-   (`polarity-head-centric`).
+1. **Filament-centric directional tracking** (`gliding-directional`) — track
+   filaments frame-to-frame, then attach a sign from the head sitting on one tip.
+   (Currently uses a lightweight tracker — see Notes / limitations.)
+2. **Head-centric tracking** (`polarity-head-centric`) — track the point-like
+   heads; associate each head track, per frame, with an unambiguously labelled
+   filament; and score its directionality. This is the approach suited to the
+   high filament density and frequent crossings of the original data, where
+   frame-to-frame filament tracking is unreliable.
    - Head detection: single-scale LoG ≈ TrackMate LoG detector
      (`core/detection/heads.py`, `heads-log`).
    - Head tracking: constant-velocity Kalman + Hungarian LAP + gap closing ≈
@@ -74,8 +76,9 @@ Resolved per movie with precedence `auto` = **sidecar → legacy `led.csv` →
 config/CLI** (`analysis/perturbation.py`):
 
 - per-movie sidecar `<movie>.perturb.toml` (also .json/.yaml) — easiest;
-- legacy v0.1 `<base>.csv` + `<base> led.csv` (reproduces `find_switch_signal_
-  files` / `get_switch_frames`, validated to frames [98, 298] on real data);
+- legacy v0.1 `<base>.csv` + `<base> led.csv` (reproduces the original
+  `find_switch_signal_files` / `get_switch_frames` logic; validated to switch
+  frames [98, 298] on real data);
 - explicit `switch_frames` / `perturbation_times_s` in config or CLI.
 
 Handles ≥2 on/off cycles; LED-on intervals are shaded on the plot.
@@ -125,7 +128,8 @@ fastplus -d <DIR> --config config.plus.example.toml
 - The `optomerge` registration adapter (`io/dual_channel._apply_optomerge`) is
   written against an assumed API and needs validation against optomerge's real
   entry points; until then run with `--no-register` on pre-aligned data.
-- `head` detection and the across-movie loop remain serial (cheap / memory).
+- Head detection and the across-movie loop remain serial (both are cheap
+  relative to filament detection, and this keeps peak memory bounded).
 
 ---
 
