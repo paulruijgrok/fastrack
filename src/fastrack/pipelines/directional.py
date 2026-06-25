@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import warnings
 from collections import Counter, defaultdict
+from multiprocessing import Pool, cpu_count
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -144,31 +145,85 @@ def analyze_filament_centric(
 
 
 # --------------------------------------------------------------------------- #
+# Parallelism helpers
+# --------------------------------------------------------------------------- #
+def resolve_workers(nprocs) -> int:
+    """Number of worker processes: ``None`` -> all cores, else the given count."""
+    if nprocs is None:
+        return max(1, cpu_count())
+    return max(1, int(nprocs))
+
+
+def _pmap(func, tasks, nprocs=None, chunksize=None):
+    """Map ``func`` over ``tasks``; serial if 1 worker, else a process Pool.
+
+    ``func`` must be a top-level (picklable) function.  Results preserve the
+    order of ``tasks`` (``Pool.imap``).
+    """
+    tasks = list(tasks)
+    workers = resolve_workers(nprocs)
+    if workers <= 1 or len(tasks) <= 1:
+        return [func(t) for t in tasks]
+    if chunksize is None:
+        chunksize = max(1, len(tasks) // (workers * 4))
+    with Pool(processes=min(workers, len(tasks))) as pool:
+        return list(pool.imap(func, tasks, chunksize=chunksize))
+
+
+def _selftest_double(x):
+    """Trivial picklable worker used to unit-test the Pool plumbing."""
+    return x * 2
+
+
+# --------------------------------------------------------------------------- #
 # Heavy helpers (deferred imports)
 # --------------------------------------------------------------------------- #
-def detect_filaments_in_stack(stack: np.ndarray, detection_algorithm: str = "entropy",
-                              detection_params: Optional[dict] = None,
-                              fast_rank: bool = True, morph_contrast: bool = False) -> List[list]:
-    """Run the configured filament detector on each frame of an in-memory stack.
+def _detect_one_frame(task):
+    """Per-frame filament-detection worker (picklable; runs in a child process).
 
-    Returns a list (per frame) of the live ``Filament`` objects.  Imports the
-    heavy ``Frame`` / detector machinery lazily.
+    ``task`` = (img, frame_idx, algorithm, params, fast_rank, morph_contrast).
+    Returns (frame_idx, list[FilamentRecord]) -- lightweight, picklable records
+    rather than live Frame/Filament objects, so they cross the process boundary
+    cheaply and carry exactly what association/scoring need (contour, cm, length).
     """
+    img, idx, algo, params, fast_rank, morph_contrast = task
     from ..core.frame import Frame
     from ..core.detection import DETECTORS
-    from skimage.util import img_as_uint
-
-    det = _make_detector(DETECTORS, detection_algorithm, detection_params,
-                         fast_rank, morph_contrast)
-    out = []
-    for t in range(stack.shape[0]):
-        frame = Frame()
-        frame.frame_no = t
-        img = stack[t]
-        frame.img = img_as_uint(img) if img.dtype != np.uint16 else img
-        frame.width, frame.height = frame.img.shape
+    from ..datamodel import FilamentRecord
+    try:
+        from skimage.util import img_as_uint
+    except Exception:
+        img_as_uint = lambda x: x  # noqa: E731
+    det = _make_detector(DETECTORS, algo, params, fast_rank, morph_contrast)
+    frame = Frame()
+    frame.frame_no = idx
+    frame.img = img_as_uint(img) if img.dtype != np.uint16 else img
+    frame.width, frame.height = frame.img.shape
+    try:
         det.detect(frame)
-        out.append(list(frame.filaments))
+        recs = [FilamentRecord.from_filament(f) for f in frame.filaments]
+    except Exception as exc:                      # one bad frame shouldn't abort
+        warnings.warn("frame %d filament detection failed: %s" % (idx, exc))
+        recs = []
+    return idx, recs
+
+
+def detect_filaments_in_stack(stack: np.ndarray, detection_algorithm: str = "entropy",
+                              detection_params: Optional[dict] = None,
+                              fast_rank: bool = True, morph_contrast: bool = False,
+                              nprocs=None) -> List[list]:
+    """Detect filaments on every frame of an in-memory stack, in parallel.
+
+    Per-frame detection (the dominant cost) is mapped over ``nprocs`` worker
+    processes (``None`` -> all cores).  Returns a list (per frame) of picklable
+    ``FilamentRecord`` objects; ordering matches the stack.
+    """
+    n = int(stack.shape[0])
+    tasks = [(stack[t], t, detection_algorithm, detection_params,
+              fast_rank, morph_contrast) for t in range(n)]
+    out: List[list] = [[] for _ in range(n)]
+    for idx, recs in _pmap(_detect_one_frame, tasks, nprocs):
+        out[idx] = recs
     return out
 
 
@@ -280,16 +335,16 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
     total_qc: Counter = Counter()
     combined_pert = None          # representative switch schedule for the pooled fit
 
-    # TODO(parallelism): this driver is currently single-core -- `nprocs` is
-    # accepted but unused, movies run in this serial loop, and within a movie
-    # `detect_heads_in_stack` / `detect_filaments_in_stack` iterate frames
-    # serially.  Two straightforward options for a future commit:
-    #   (a) parallelise per-frame *filament* detection with a multiprocessing
-    #       Pool, mirroring fastrack.pipelines.gliding (the dominant cost); or
-    #   (b) parallelise across movies (one process per movie) when several are
-    #       analysed, which also keeps each movie's frame order intact.
-    # Head tracking and per-frame averaging must stay on the parent (they need
-    # global frame order / cross-movie state).
+    # Parallelism: per-frame *filament* detection (the dominant cost) is mapped
+    # over `nprocs` worker processes inside detect_filaments_in_stack (option (a),
+    # mirroring fastrack.pipelines.gliding).  Movies are still processed serially
+    # in this loop, and head tracking + per-frame averaging stay on the parent
+    # (they need global frame order / cross-movie state).  Head detection is left
+    # serial as it is cheap relative to filament detection.
+    # TODO(parallelism): optionally add across-movie parallelism for many-movie
+    # runs (one worker per movie) -- weigh against the per-movie memory footprint.
+    if verbose:
+        print("[fastplus] filament detection workers: %d" % resolve_workers(nprocs))
     for path in movies:
         tracker = HEAD_TRACKERS.create(
             head_tracking_algorithm, initial_search_radius=initial_search_radius,
@@ -331,7 +386,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
             quality_threshold=head_quality, subpixel=head_subpixel)
         filament_frames = detect_filaments_in_stack(
             fil_stack, detection_algorithm=detection_algorithm,
-            detection_params=detection_params)
+            detection_params=detection_params, nprocs=nprocs)
 
         polar_by_frame = {} if overlay else None
         if mode == "filament-centric":

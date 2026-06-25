@@ -406,6 +406,23 @@ def test_find_rgb_movies_recursive_case_insensitive(tmp_path=None):
     assert all(h.lower().endswith("rgb.tif") for h in hits)
 
 
+def test_resolve_workers():
+    from fastrack.pipelines.directional import resolve_workers
+    import multiprocessing
+    assert resolve_workers(1) == 1
+    assert resolve_workers(4) == 4
+    assert resolve_workers(None) == max(1, multiprocessing.cpu_count())
+    assert resolve_workers(0) == 1
+
+
+def test_pmap_serial_and_parallel_match():
+    from fastrack.pipelines.directional import _pmap, _selftest_double
+    tasks = list(range(10))
+    expected = [x * 2 for x in tasks]
+    assert _pmap(_selftest_double, tasks, nprocs=1) == expected   # serial
+    assert _pmap(_selftest_double, tasks, nprocs=2) == expected   # pool, ordered
+
+
 def test_run_raises_on_missing_directory():
     from fastrack.pipelines import directional
     with pytest.raises(NotADirectoryError):
