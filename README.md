@@ -13,6 +13,31 @@ replaces two external dependencies:
   no external tool to install.
 - **Movie encoding:** `avconv` is replaced by `ffmpeg`.
 
+## Quickstart
+
+New to Python? Install [Miniforge](https://github.com/conda-forge/miniforge),
+open a fresh terminal, then:
+
+```bash
+mamba create -n fastrack python=3.11      # one-time: make an environment
+conda activate fastrack                   # do this in each new terminal
+git clone https://github.com/paulruijgrok/fastrack.git
+cd fastrack
+pip install -e .                          # install FASTrack + the `fast` command
+fast --help                               # check it works
+```
+
+Then run the analysis on a folder of movies:
+
+```bash
+fast -d /path/to/your/movies
+```
+
+That's the standard single-colour workflow. See [Install](#install) for the full
+details (and the pip/venv alternative), and
+[FASTplus](#fastplus--directional-polarity-aware-analysis-optional) for the
+two-colour, polarity-aware mode.
+
 ## Package structure
 
 The code uses a `src/` layout and is organized into logical sub-packages, each
