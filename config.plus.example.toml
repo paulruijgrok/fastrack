@@ -1,0 +1,89 @@
+# config.plus.example.toml
+# =========================
+# Example configuration for the FASTplus directional driver (`fastplus -d DIR`).
+# Pass with:  fastplus -d ./MyLOVChar --config config.plus.example.toml
+#
+# Resolution order (last wins): built-in defaults < this file < CLI flags.
+# Every key is optional; comment a line to fall back to the built-in default
+# shown in the inline comment.
+
+# ---------------------------------------------------------------------------
+# [hardware]  Microscope / camera
+# ---------------------------------------------------------------------------
+[hardware]
+pixel_size_nm = 80.65        # default: 80.65
+
+# Frame timing. RGB TIFF stacks carry no embedded clock, so set the acquisition
+# rate here to get velocities in nm/s (otherwise they come out in nm/frame).
+# Give the rate in Hz. NOTE: "1356mspf" in these filenames means 135.6 ms per
+# frame (0.1356 s), i.e. ~7.375 Hz -- NOT 1.356 s:
+frame_rate_hz = 7.375        # default: null (-> nm/frame). CLI: --frame-rate
+# The fastplus CLI also accepts seconds-per-frame as sugar: --spf 0.1356
+# (sets frame_rate_hz = 1/0.1356; an explicit --frame-rate wins).
+
+# ---------------------------------------------------------------------------
+# [analysis]  Shared knobs reused from the base FAST analysis
+# ---------------------------------------------------------------------------
+[analysis]
+detection_algorithm = "entropy"   # filament detector: entropy | ridge | ridge-fast
+stuck_velocity_nm_s = 80.0        # |v| below this is "stuck"
+min_path_length = 5
+
+# ---------------------------------------------------------------------------
+# [directional]  FASTplus-specific settings
+# ---------------------------------------------------------------------------
+[directional]
+mode = "head-centric"        # head-centric | filament-centric
+
+# -- channels --
+head_channel = "red"         # point-like polarity labels
+filament_channel = "green"   # filaments
+
+# -- head detection (≈ TrackMate LoG detector) --
+head_sigma = 1.5             # Gaussian pre-blur
+head_radius = 5.0            # estimated head radius (px)
+head_quality = 5.0           # LoG quality threshold (tune per dataset)
+head_subpixel = true
+
+# -- head tracking (≈ TrackMate LinearMotionLAP) --
+head_tracking_algorithm = "kalman-lap"
+initial_search_radius = 20.0
+kalman_search_radius = 15.0
+max_frame_gap = 4
+
+# -- head <-> filament association + disambiguation --
+end_fraction = 0.15          # fraction of length from each tip counted as an "end"
+max_end_distance_nm = 500.0  # max head-to-tip distance to associate
+
+# -- sign convention --
+# Which polar end the label ("head") marks. For actin + gelsolin the label is on
+# the (+)/barbed end -> "plus" (default). Velocity sign is defined so that it is
+# POSITIVE when the motors stroke toward the (+)-end:
+#     "plus"  label:  head LAGGING  -> +   ,  head LEADING -> -
+#     "minus" label:  head LEADING  -> +   ,  head LAGGING -> -
+head_marks_end = "plus"      # plus | minus   (CLI: --head-marks)
+
+# -- two-channel registration (needs: pip install 'fastrack[plus]') --
+register_channels = true
+# channel_map = "red=heads,green=filaments"   # overrides head/filament_channel
+
+# -- per-frame averaging + kinetics --
+# How to find each movie's LED/perturbation switch schedule:
+#   "auto"    : per-movie sidecar (<movie>.perturb.toml) -> legacy "<base> led.csv"
+#               -> the config values below.   (Default)
+#   "sidecar" : only the per-movie sidecar file
+#   "led-csv" : only the legacy v0.1 LED files (a "<base>.csv" times file plus a
+#               "<base> led.csv" with switch times row 0, voltages row 1)
+#   "config"  : only the explicit values below (same schedule for every movie)
+#   "none"    : no perturbation
+perturbation_source = "auto"
+# Explicit schedule for the "config" source (handles N cycles). Give EITHER:
+# switch_frames = [98, 298]                 # frame indices of each switch, or
+# perturbation_times_s = [13.3, 40.4]       # switch onset times in seconds
+# perturbation_states  = [1, 0]             # state AFTER each switch; >0 = ON
+#                                           # ([1,0] = ON at 98, OFF at 298 -> rise
+#                                           #  then decay). omit -> alternate from OFF
+kinetic_model = "exp_rise_decay"      # none | exp_rise | exp_decay | exp_rise_decay
+# Central-percentile bands shaded on frame_average.png, as (lower, upper) pairs
+# from inner to outer (shaded gray/whitesmoke/silver). Default = 14-86% & 2-98%.
+percentiles = [14, 86, 2, 98]
