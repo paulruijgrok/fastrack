@@ -56,6 +56,7 @@ _PLUS_CLI_TO_FIELD = {
     "fp_cache_layout": "detection_cache_layout",
     "export_detections": "export_detections",
     "fp_export_contours": "export_detection_contours",
+    "movie_workers": "parallel_movies",
 }
 
 
@@ -411,7 +412,12 @@ def fastplus_main(argv=None):
                    help="stuck-velocity threshold nm/s (Default: 80)")
     p.add_argument("--detector", default=S, choices=["entropy", "ridge", "ridge-fast"],
                    dest="detector", help="filament detector (Default: entropy)")
-    p.add_argument("-j", default=S, type=int, dest="j", help="worker processes (Default: all)")
+    p.add_argument("-j", default=S, type=int, dest="j",
+                   help="per-frame detection workers (Default: all cores)")
+    p.add_argument("--movie-workers", default=S, type=int, dest="movie_workers",
+                   help="analyse this many movies concurrently (one process each). "
+                        ">1 runs per-frame detection serially; peak memory scales "
+                        "with this count. Best for many small movies. (Default: 1)")
     p.add_argument("-v", action="store_true", default=S, dest="v", help="verbose output")
     args = p.parse_args(argv)
 

@@ -233,6 +233,7 @@ All keys live in the `[directional]` section (plus a few shared `[hardware]` /
 | `detection_cache_layout` | `--cache-layout` | `per-movie` | detection cache: per-movie `.npz` or per-frame `.npy` |
 | `export_detections` | `--export-detections` | off | write per-movie minimal detection CSV + heads CSV |
 | `export_detection_contours` | `--export-contours` | off | also write the full long-format contour CSV |
+| `parallel_movies` | `--movie-workers` | 1 | analyse N movies concurrently (alternative to `-j`) |
 | (runtime) `force_analysis` | `-f` | off | re-detect, ignoring/refreshing the cache |
 | (runtime) `recalculate` | `-r` | off | reuse cached detections, recompute scoring |
 
@@ -245,12 +246,21 @@ Quick-test flags: `--limit N` (first N movies), `--max-frames N`, `--frame-step 
 
 ## Performance / parallelism
 
-Per-frame filament detection — the dominant cost — runs across worker processes;
-control it with `-j` (`-j 1` serial, omit for all cores). Output is independent
-of worker count (verified byte-for-byte). Measured ~3.2× on 8 workers for a
-2-movie / 800-frame set. Details and a benchmark script:
-[docs/fastplus_parallel_verification.md](fastplus_parallel_verification.md) and
-`tools/benchmark_fastplus_parallel.py`.
+There are two, mutually-exclusive ways to use multiple cores:
+
+- **Within-movie (default)** — per-frame filament detection (the dominant cost)
+  runs across worker processes; control with `-j` (`-j 1` serial, omit for all
+  cores). Best for a few large movies. Output is independent of worker count
+  (verified byte-for-byte); measured ~3.2× on 8 workers for a 2-movie /
+  800-frame set. See
+  [docs/fastplus_parallel_verification.md](fastplus_parallel_verification.md)
+  and `tools/benchmark_fastplus_parallel.py`.
+- **Across-movie** — `--movie-workers N` analyses N movies concurrently, one
+  process each. Best for **many small movies**. Because a worker process can't
+  spawn its own pool, per-frame detection runs serially inside each worker, so
+  `--movie-workers` and `-j` are alternatives, not combined. **Peak memory scales
+  with N** (N movies in flight) — the main thing to weigh. A failed movie is
+  logged and skipped rather than aborting the run.
 
 ### Detection cache (fast reruns)
 
