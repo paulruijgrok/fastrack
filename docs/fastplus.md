@@ -230,6 +230,11 @@ All keys live in the `[directional]` section (plus a few shared `[hardware]` /
 | `perturbation_states` | `--perturb-states` | — | state after each switch; >0 = ON |
 | `kinetic_model` | `--kinetic-model` | `none` | exp rise/decay model to fit |
 | `percentiles` | `--percentiles` | `14 86 2 98` | central-percentile bands (inner→outer) |
+| `detection_cache_layout` | `--cache-layout` | `per-movie` | detection cache: per-movie `.npz` or per-frame `.npy` |
+| `export_detections` | `--export-detections` | off | write per-movie minimal detection CSV + heads CSV |
+| `export_detection_contours` | `--export-contours` | off | also write the full long-format contour CSV |
+| (runtime) `force_analysis` | `-f` | off | re-detect, ignoring/refreshing the cache |
+| (runtime) `recalculate` | `-r` | off | reuse cached detections, recompute scoring |
 
 Shared knobs used by FASTplus: `[hardware] pixel_size_nm`, `[hardware]
 frame_rate_hz` (or the CLI sugar `--spf` seconds-per-frame), `[analysis]
@@ -247,9 +252,25 @@ of worker count (verified byte-for-byte). Measured ~3.2× on 8 workers for a
 [docs/fastplus_parallel_verification.md](fastplus_parallel_verification.md) and
 `tools/benchmark_fastplus_parallel.py`.
 
-There is currently **no caching** — every run re-detects from scratch (so `-f`
-is a no-op for `fastplus`). A cache mirroring FASTrack's per-frame / per-movie
-stores is the top planned enhancement (see the PR description).
+### Detection cache (fast reruns)
+
+Detection results are cached per movie, so reruns — parameter sweeps on
+association, scoring, or fitting — skip the expensive detection (and even the
+movie load) entirely. The cache reuses the FASTrack `STORES` machinery:
+
+- `--cache-layout per-movie` (default) — one `filXYs_fp_*.npz` per movie;
+  `--cache-layout per-frame` — one `.npy` per frame (legacy layout).
+- The cache is written into each movie's output folder and is keyed by movie +
+  **detection parameters** (detector, channel, registration, frame subsetting):
+  change any of them and the cache is recomputed automatically.
+- `-f` / `--force` re-detects and refreshes the cache; `-r` reuses cached
+  detections and recomputes scoring (this is also the default whenever a valid
+  cache exists — `-r` is kept for parity with `fast`).
+
+Optional per-movie CSV exports of the cached detections (modern-standard
+outputs): `--export-detections` writes `filaments_minimal.csv` (one row per
+filament) + `heads.csv`; `--export-contours` adds the full long-format
+`filaments_contours.csv` (one row per contour point).
 
 ## Troubleshooting
 

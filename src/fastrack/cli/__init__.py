@@ -53,6 +53,9 @@ _PLUS_CLI_TO_FIELD = {
     "switch_source": "perturbation_source", "switch_frames": "switch_frames",
     "perturb": "perturbation_times_s", "perturb_states": "perturbation_states",
     "kinetic_model": "kinetic_model", "percentiles": "percentiles",
+    "fp_cache_layout": "detection_cache_layout",
+    "export_detections": "export_detections",
+    "fp_export_contours": "export_detection_contours",
 }
 
 
@@ -385,6 +388,22 @@ def fastplus_main(argv=None):
                    help="frame rate for qc_overlay.mp4 (Default: 10)")
     p.add_argument("--montage-frames", default=S, type=int, dest="montage_frames",
                    help="number of frames in qc_overlay.png (Default: 12)")
+
+    # detection cache (reuses the FASTrack STORES; see docs/fastplus.md)
+    p.add_argument("-f", action="store_true", default=S, dest="f",
+                   help="force re-detection, ignoring and refreshing the cache")
+    p.add_argument("-r", action="store_true", default=S, dest="r",
+                   help="reuse cached detections, recompute scoring (the default "
+                        "when a valid cache exists; kept for parity with `fast`)")
+    p.add_argument("--cache-layout", default=S, choices=["per-movie", "per-frame"],
+                   dest="fp_cache_layout",
+                   help="detection cache layout: per-movie .npz (Default) or per-frame .npy")
+    p.add_argument("--export-detections", action="store_true", default=S,
+                   dest="export_detections",
+                   help="write a per-movie minimal detection CSV + heads CSV")
+    p.add_argument("--export-contours", action="store_true", default=S,
+                   dest="fp_export_contours",
+                   help="also write the full long-format contour CSV (large)")
 
     # shared hardware / runtime
     p.add_argument("-px", default=S, type=float, dest="px", help="pixel size in nm (Default: 80.65)")

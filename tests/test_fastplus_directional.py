@@ -406,6 +406,71 @@ def test_find_rgb_movies_recursive_case_insensitive(tmp_path=None):
     assert all(h.lower().endswith("rgb.tif") for h in hits)
 
 
+# --------------------------------------------------------------------------- #
+# detection cache
+# --------------------------------------------------------------------------- #
+def _fil_record(frame, label, n=11):
+    from fastrack.datamodel import FilamentRecord
+    contour = np.column_stack([np.arange(n), np.full(n, label)]).astype(int)
+    return FilamentRecord(frame=frame, label=label, contour=contour,
+                          length=float(10 * (label + 1)),
+                          cm=np.array([float(n // 2), float(label)]))
+
+
+def _fil_frames(n_frames=4, per=3):
+    return [[_fil_record(f, l) for l in range(per)] for f in range(n_frames)]
+
+
+def test_detection_cache_roundtrip(tmp_path=None):
+    import tempfile
+    from fastrack.io.detection_cache import DetectionCache
+    for layout in ("per-movie", "per-frame"):
+        d = tempfile.mkdtemp()
+        params = {"detector": "entropy", "channel": "green"}
+        cache = DetectionCache(d, "fil", params, layout=layout)
+        frames = _fil_frames(4, 3)
+
+        assert not cache.has_all(4)
+        cache.save(frames)
+        assert cache.has_all(4), layout
+        assert cache.count() == 4
+
+        out = cache.load()
+        assert len(out) == 4 and all(len(fr) == 3 for fr in out)
+        # records survive the np.save round-trip (contour + scalars intact)
+        assert out[2][1].label == 1            # frame 2, second record (label index 1)
+        assert out[2][1].length == frames[2][1].length
+        assert np.array_equal(out[3][0].contour, frames[3][0].contour)
+
+
+def test_detection_cache_invalidates_on_param_change(tmp_path=None):
+    import tempfile
+    from fastrack.io.detection_cache import DetectionCache
+    d = tempfile.mkdtemp()
+    a = DetectionCache(d, "fil", {"detector": "entropy", "quality": 8}, layout="per-movie")
+    a.save(_fil_frames(3, 2))
+    assert a.has_all(3)
+    # a different parameter -> different tag -> cache miss (no stale reuse)
+    b = DetectionCache(d, "fil", {"detector": "entropy", "quality": 5}, layout="per-movie")
+    assert not b.has_all(3)
+    assert a.tag != b.tag
+    # identical params -> same tag -> hit
+    c = DetectionCache(d, "fil", {"detector": "entropy", "quality": 8}, layout="per-movie")
+    assert c.tag == a.tag and c.has_all(3)
+
+
+def test_detection_cache_caches_head_spots(tmp_path=None):
+    import tempfile
+    from fastrack.io.detection_cache import DetectionCache
+    d = tempfile.mkdtemp()
+    heads = [[SpotRecord(frame=f, x=1.0 * f, y=2.0, quality=50.0, radius=5.0)]
+             for f in range(3)]
+    cache = DetectionCache(d, "head", {"channel": "red"}, layout="per-movie")
+    cache.save(heads)
+    out = cache.load()
+    assert len(out) == 3 and out[1][0].x == 1.0 and out[1][0].frame == 1
+
+
 def test_resolve_workers():
     from fastrack.pipelines.directional import resolve_workers
     import multiprocessing

@@ -84,6 +84,14 @@ perturbation_source = "auto"
 #                                           # ([1,0] = ON at 98, OFF at 298 -> rise
 #                                           #  then decay). omit -> alternate from OFF
 kinetic_model = "exp_rise_decay"      # none | exp_rise | exp_decay | exp_rise_decay
+
+# -- detection cache (fast reruns) + optional CSV exports --
+# Detections are cached per movie and reused on rerun (skip the heavy detection).
+# The cache is keyed by movie + detection params, so changing a param recomputes
+# it. Use the `fastplus -f` flag to force re-detection.
+detection_cache_layout = "per-movie"  # per-movie (.npz, modern) | per-frame (.npy, legacy)
+export_detections = false             # write filaments_minimal.csv + heads.csv per movie
+export_detection_contours = false     # also write the full long-format contour CSV
 # Central-percentile bands shaded on frame_average.png, as (lower, upper) pairs
 # from inner to outer (shaded gray/whitesmoke/silver). Default = 14-86% & 2-98%.
 percentiles = [14, 86, 2, 98]

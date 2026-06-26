@@ -159,6 +159,16 @@ class DirectionalSettings:
     #: upper) pairs (inner -> outer). Default = 14-86% and 2-98% bands.
     percentiles: tuple = (14, 86, 2, 98)
 
+    # -- detection cache + exports -------------------------------------- #
+    #: Detection-cache layout: "per-movie" (one .npz per movie, modern default)
+    #: or "per-frame" (one .npy per frame, legacy). Reuses the FASTrack STORES.
+    #: (Named distinctly from runtime.cache_layout so it can default differently.)
+    detection_cache_layout: str = "per-movie"
+    #: Write a per-movie minimal detection CSV (one row per filament) + heads CSV.
+    export_detections: bool = False
+    #: Also write the full long-format contour CSV (one row per contour point).
+    export_detection_contours: bool = False
+
 
 _SECTIONS = {
     "hardware": HardwareSettings,
@@ -308,6 +318,7 @@ class Settings:
                                  if self.analysis.detection_algorithm
                                  in ("ridge", "ridge-fast") else {}),
             "force_analysis": rt.force_analysis,
+            "recalculate": rt.recalculate,
             "nprocs": rt.nprocs,
             "verbose": rt.verbose,
         }

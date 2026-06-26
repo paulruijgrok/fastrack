@@ -284,7 +284,9 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         perturbation_source="auto", switch_frames=(), perturbation_times_s=(),
         perturbation_states=(), kinetic_model="none",
         percentiles=(14, 86, 2, 98),
-        force_analysis=False, nprocs=None, verbose=False,
+        detection_cache_layout="per-movie", export_detections=False,
+        export_detection_contours=False,
+        force_analysis=False, recalculate=False, nprocs=None, verbose=False,
         limit=None, max_frames=None, frame_step=1,
         overlay=False, overlay_fps=10, montage_frames=12,
         output_dir=None, **_ignored):
@@ -297,6 +299,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
     from ..core.tracking import HEAD_TRACKERS
     from ..io.dual_channel import TwoChannelMovie
     from ..io.export import write_rows_csv  # tidy CSV writer (see io.export)
+    from ..io.detection_cache import DetectionCache
     from ..analysis import perturbation as _pert
 
     if not main_dir or not os.path.isdir(main_dir):
@@ -368,25 +371,67 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
                     "using the first for the pooled kinetic fit"
                     % (combined_pert.switch_frames, pert.switch_frames))
 
-        movie = TwoChannelMovie(path, head_channel, filament_channel,
-                                channel_map, register=register_channels)
-        head_stack, fil_stack = movie.split()
-        movie.release()
+        mdir = os.path.join(out_root, _safe(path, main_dir))
+        os.makedirs(mdir, exist_ok=True)
 
-        # optional temporal cropping / subsampling (memory + speed for testing)
-        if max_frames or frame_step > 1:
-            sl = slice(0, max_frames, frame_step if frame_step > 1 else None)
-            head_stack, fil_stack = head_stack[sl], fil_stack[sl]
-        if verbose:
-            print("[fastplus]     %d frames, %dx%d" %
-                  (head_stack.shape[0], head_stack.shape[1], head_stack.shape[2]))
+        # --- detection cache (reuses STORES; keyed by movie + detection params).
+        # The hashes below decide cache identity: change any param that affects a
+        # detection and the tag changes, so the stale cache is ignored. --------- #
+        common = {"register": register_channels, "channel_map": channel_map,
+                  "max_frames": max_frames, "frame_step": frame_step}
+        fil_params = dict(common, detector=detection_algorithm,
+                          params=detection_params, channel=filament_channel)
+        head_params = dict(common, channel=head_channel, sigma=head_sigma,
+                           radius=head_radius, quality=head_quality,
+                           subpixel=head_subpixel)
+        fil_cache = DetectionCache(mdir, "fil", fil_params, layout=detection_cache_layout)
+        head_cache = DetectionCache(mdir, "head", head_params, layout=detection_cache_layout)
 
-        head_frames = detect_heads_in_stack(
-            head_stack, gaussian_sigma=head_sigma, radius=head_radius,
-            quality_threshold=head_quality, subpixel=head_subpixel)
-        filament_frames = detect_filaments_in_stack(
-            fil_stack, detection_algorithm=detection_algorithm,
-            detection_params=detection_params, nprocs=nprocs)
+        head_stack = None
+        cache_hit = (not force_analysis and fil_cache.count() > 0
+                     and fil_cache.count() == head_cache.count())
+        if cache_hit and not overlay:
+            # fully cached and no images needed -> skip the movie load AND detection
+            filament_frames = fil_cache.load()
+            head_frames = head_cache.load()
+            if verbose:
+                print("[fastplus]     cache hit (%d frames) -- skipped load + detect"
+                      % len(filament_frames))
+        else:
+            movie = TwoChannelMovie(path, head_channel, filament_channel,
+                                    channel_map, register=register_channels)
+            head_stack, fil_stack = movie.split()
+            movie.release()
+            if max_frames or frame_step > 1:
+                sl = slice(0, max_frames, frame_step if frame_step > 1 else None)
+                head_stack, fil_stack = head_stack[sl], fil_stack[sl]
+            n = fil_stack.shape[0]
+            if verbose:
+                print("[fastplus]     %d frames, %dx%d" %
+                      (n, head_stack.shape[1], head_stack.shape[2]))
+
+            # filaments (the dominant cost) -- reuse cache unless forced
+            if not force_analysis and fil_cache.has_all(n):
+                filament_frames = fil_cache.load()
+                if verbose:
+                    print("[fastplus]     filaments: cache hit")
+            else:
+                filament_frames = detect_filaments_in_stack(
+                    fil_stack, detection_algorithm=detection_algorithm,
+                    detection_params=detection_params, nprocs=nprocs)
+                fil_cache.save(filament_frames)
+            # heads (cheap) -- cache too, so a later run can skip the movie load
+            if not force_analysis and head_cache.has_all(n):
+                head_frames = head_cache.load()
+            else:
+                head_frames = detect_heads_in_stack(
+                    head_stack, gaussian_sigma=head_sigma, radius=head_radius,
+                    quality_threshold=head_quality, subpixel=head_subpixel)
+                head_cache.save(head_frames)
+
+        if export_detections or export_detection_contours:
+            _export_detection_csvs(mdir, filament_frames, head_frames,
+                                   contours=export_detection_contours)
 
         polar_by_frame = {} if overlay else None
         if mode == "filament-centric":
@@ -403,8 +448,6 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         total_qc.update(qc)
         aggregator.add_movie(dpaths)
 
-        mdir = os.path.join(out_root, _safe(path, main_dir))
-        os.makedirs(mdir, exist_ok=True)
         rows = [r for dp in dpaths for r in dp.to_rows()]
         write_rows_csv(rows, os.path.join(mdir, "directional_paths.csv"),
                        ["path_id", "source", "frame", "time_s", "signed_velocity_nm_s"])
@@ -535,6 +578,44 @@ def _greedy_cm_paths(filament_frames, max_velocity_px):
     for op in open_paths:
         all_paths[op["path_id"]] = op
     return list(all_paths.values())
+
+
+def _export_detection_csvs(mdir, filament_frames, head_frames, contours=False):
+    """Per-movie CSV exports of the cached detections (modern-standard outputs).
+
+    ``filaments_minimal.csv`` (one row per filament) + ``heads.csv`` always; the
+    full long-format ``filaments_contours.csv`` (one row per contour point) when
+    ``contours`` is set. Mirrors fast's --export-trajectories / --export-contours.
+    """
+    from ..io.export import write_rows_csv
+
+    frows = []
+    for f, recs in enumerate(filament_frames):
+        for label, r in enumerate(recs):
+            row = dict(r.to_row()) if hasattr(r, "to_row") else {}
+            row.setdefault("frame", f)
+            row.setdefault("label", label)
+            frows.append(row)
+    write_rows_csv(frows, os.path.join(mdir, "filaments_minimal.csv"),
+                   ["frame", "label", "n_points", "length", "density", "width",
+                    "area", "end2end", "midpoint_x", "midpoint_y", "path_id"])
+
+    hrows = [s.to_row() for fr in head_frames for s in fr]
+    write_rows_csv(hrows, os.path.join(mdir, "heads.csv"),
+                   ["frame", "track_id", "x", "y", "quality", "radius"])
+
+    if contours:
+        crows = []
+        for f, recs in enumerate(filament_frames):
+            for label, r in enumerate(recs):
+                cont = getattr(r, "contour", None)
+                if cont is None:
+                    continue
+                for p, rc in enumerate(np.asarray(cont)):
+                    crows.append({"frame": f, "label": label, "point": p,
+                                  "x": float(rc[1]), "y": float(rc[0])})
+        write_rows_csv(crows, os.path.join(mdir, "filaments_contours.csv"),
+                       ["frame", "label", "point", "x", "y"])
 
 
 def _safe(path, root):
