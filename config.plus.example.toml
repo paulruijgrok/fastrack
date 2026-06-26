@@ -89,6 +89,10 @@ kinetic_model = "exp_rise_decay"      # none | exp_rise | exp_decay | exp_rise_d
 # Detections are cached per movie and reused on rerun (skip the heavy detection).
 # The cache is keyed by movie + detection params, so changing a param recomputes
 # it. Use the `fastplus -f` flag to force re-detection.
+# Across-movie parallelism: analyse this many movies at once (one process each).
+# 1 = serial movies with per-frame detection parallelism (the `fastplus -j` path).
+# >1 is best for many small movies; peak memory scales with this count.
+parallel_movies = 1
 detection_cache_layout = "per-movie"  # per-movie (.npz, modern) | per-frame (.npy, legacy)
 export_detections = false             # write filaments_minimal.csv + heads.csv per movie
 export_detection_contours = false     # also write the full long-format contour CSV

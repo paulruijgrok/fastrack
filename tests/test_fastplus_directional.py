@@ -471,6 +471,32 @@ def test_detection_cache_caches_head_spots(tmp_path=None):
     assert len(out) == 3 and out[1][0].x == 1.0 and out[1][0].frame == 1
 
 
+def test_parallel_movies_setting_roundtrip():
+    s = Settings().with_overrides(parallel_movies=4)
+    assert s.directional.parallel_movies == 4
+    assert s.to_directional_kwargs()["parallel_movies"] == 4
+
+
+def test_across_movie_dispatch_handles_errors_serial_and_pool(tmp_path=None):
+    # Two bogus *RGB.tif files: each movie load fails, but the run must not
+    # crash — it warns per movie and returns. Exercises the serial loop and the
+    # across-movie Pool dispatch + the picklable per-movie worker/results.
+    import os, tempfile, warnings
+    from fastrack.pipelines import directional
+    d = tempfile.mkdtemp()
+    for nm in ("m1 RGB.tif", "m2 RGB.tif"):
+        open(os.path.join(d, nm), "wb").close()      # empty -> load raises
+
+    for movie_workers in (1, 2):
+        out = tempfile.mkdtemp()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            res = directional.run(main_dir=d, output_dir=out, register_channels=False,
+                                  parallel_movies=movie_workers, verbose=False)
+        assert res["movies"] == 2          # both discovered
+        assert res["qc"] == {}             # both failed cleanly -> nothing aggregated
+
+
 def test_resolve_workers():
     from fastrack.pipelines.directional import resolve_workers
     import multiprocessing

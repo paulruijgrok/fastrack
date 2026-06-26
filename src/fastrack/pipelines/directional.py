@@ -244,6 +244,131 @@ def detect_heads_in_stack(stack: np.ndarray, *, gaussian_sigma=1.5, radius=5.0,
 
 
 # --------------------------------------------------------------------------- #
+# Per-movie worker (picklable; used serially or one-per-process across movies)
+# --------------------------------------------------------------------------- #
+def _process_one_movie(task: dict) -> dict:
+    """Run the full per-movie pipeline and return aggregatable results.
+
+    Writes this movie's own outputs (directional_paths.csv, overlays, detection
+    CSVs, cache) and returns ``{name, dpaths, qc, pert, error}`` for the parent
+    to pool into the combined averages.  Catches per-movie errors so one bad
+    movie cannot abort a multi-movie run.
+    """
+    from ..core.tracking import HEAD_TRACKERS
+    from ..io.dual_channel import TwoChannelMovie
+    from ..io.detection_cache import DetectionCache
+    from ..io.export import write_rows_csv
+    from ..analysis import perturbation as _pert
+
+    t = task
+    name = os.path.basename(t["path"])
+    try:
+        scorer = DirectionalScorer(pixel_size_nm=t["pixel_size_nm"], dt_s=t["dt_s"],
+                                   stuck_velocity_nm_s=t["stuck_velocity_nm_s"],
+                                   head_marks_end=t["head_marks_end"])
+        associator = HeadFilamentAssociator(
+            max_end_distance_px=t["max_end_distance_nm"] / t["pixel_size_nm"],
+            end_fraction=t["end_fraction"])
+        classifier = PolarityClassifier()
+        tracker = HEAD_TRACKERS.create(
+            t["head_tracking_algorithm"],
+            initial_search_radius=t["initial_search_radius"],
+            kalman_search_radius=t["kalman_search_radius"],
+            max_frame_gap=t["max_frame_gap"])
+
+        pert = _pert.resolve(
+            t["path"], source=t["perturbation_source"],
+            config_switch_frames=t["switch_frames"] or None,
+            config_times_s=t["perturbation_times_s"] or None,
+            config_states=t["perturbation_states"] or None,
+            frame_interval_s=t["base_dt"], verbose=t["verbose"])
+
+        mdir = os.path.join(t["out_root"], _safe(t["path"], t["main_dir"]))
+        os.makedirs(mdir, exist_ok=True)
+
+        # --- detection cache (reuses STORES; keyed by movie + detection params) #
+        common = {"register": t["register_channels"], "channel_map": t["channel_map"],
+                  "max_frames": t["max_frames"], "frame_step": t["frame_step"]}
+        fil_params = dict(common, detector=t["detection_algorithm"],
+                          params=t["detection_params"], channel=t["filament_channel"])
+        head_params = dict(common, channel=t["head_channel"], sigma=t["head_sigma"],
+                           radius=t["head_radius"], quality=t["head_quality"],
+                           subpixel=t["head_subpixel"])
+        layout = t["detection_cache_layout"]
+        fil_cache = DetectionCache(mdir, "fil", fil_params, layout=layout)
+        head_cache = DetectionCache(mdir, "head", head_params, layout=layout)
+
+        force = t["force_analysis"]
+        overlay = t["overlay"]
+        head_stack = None
+        cache_hit = (not force and fil_cache.count() > 0
+                     and fil_cache.count() == head_cache.count())
+        if cache_hit and not overlay:
+            filament_frames = fil_cache.load()
+            head_frames = head_cache.load()
+        else:
+            movie = TwoChannelMovie(t["path"], t["head_channel"], t["filament_channel"],
+                                    t["channel_map"], register=t["register_channels"])
+            head_stack, fil_stack = movie.split()
+            movie.release()
+            if t["max_frames"] or t["frame_step"] > 1:
+                sl = slice(0, t["max_frames"], t["frame_step"] if t["frame_step"] > 1 else None)
+                head_stack, fil_stack = head_stack[sl], fil_stack[sl]
+            n = fil_stack.shape[0]
+            if not force and fil_cache.has_all(n):
+                filament_frames = fil_cache.load()
+            else:
+                filament_frames = detect_filaments_in_stack(
+                    fil_stack, detection_algorithm=t["detection_algorithm"],
+                    detection_params=t["detection_params"], nprocs=t["nprocs"])
+                fil_cache.save(filament_frames)
+            if not force and head_cache.has_all(n):
+                head_frames = head_cache.load()
+            else:
+                head_frames = detect_heads_in_stack(
+                    head_stack, gaussian_sigma=t["head_sigma"], radius=t["head_radius"],
+                    quality_threshold=t["head_quality"], subpixel=t["head_subpixel"])
+                head_cache.save(head_frames)
+
+        if t["export_detections"] or t["export_detection_contours"]:
+            _export_detection_csvs(mdir, filament_frames, head_frames,
+                                   contours=t["export_detection_contours"])
+
+        polar_by_frame = {} if overlay else None
+        if t["mode"] == "filament-centric":
+            dpaths, qc = _filament_centric_movie(
+                filament_frames, head_frames, scorer, associator, classifier,
+                tracker, t["max_inter_frame_distance_nm"] / t["pixel_size_nm"],
+                polar_by_frame=polar_by_frame)
+        else:
+            dpaths, qc = analyze_head_centric(
+                head_frames, filament_frames, scorer=scorer, associator=associator,
+                classifier=classifier, head_tracker=tracker,
+                polar_by_frame=polar_by_frame)
+
+        rows = [r for dp in dpaths for r in dp.to_rows()]
+        write_rows_csv(rows, os.path.join(mdir, "directional_paths.csv"),
+                       ["path_id", "source", "frame", "time_s", "signed_velocity_nm_s"])
+
+        if overlay:
+            from ..polarity.overlay import (save_classification_montage,
+                                            save_overlay_movie)
+            fil_by_frame = {i: fl for i, fl in enumerate(filament_frames)}
+            save_classification_montage(
+                head_stack, polar_by_frame, os.path.join(mdir, "qc_overlay.png"),
+                max_frames=t["montage_frames"], filament_by_frame=fil_by_frame)
+            save_overlay_movie(
+                head_stack, polar_by_frame, os.path.join(mdir, "qc_overlay.mp4"),
+                fps=t["overlay_fps"], filament_by_frame=fil_by_frame)
+
+        return {"name": name, "dpaths": dpaths, "qc": dict(qc),
+                "pert": pert if pert else None, "error": None}
+    except Exception as exc:                          # never let one movie abort the run
+        return {"name": name, "dpaths": [], "qc": {}, "pert": None,
+                "error": "%s: %s" % (type(exc).__name__, exc)}
+
+
+# --------------------------------------------------------------------------- #
 # Pipelines
 # --------------------------------------------------------------------------- #
 @PIPELINES.register("polarity-head-centric")
@@ -287,7 +412,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         detection_cache_layout="per-movie", export_detections=False,
         export_detection_contours=False,
         force_analysis=False, recalculate=False, nprocs=None, verbose=False,
-        limit=None, max_frames=None, frame_step=1,
+        parallel_movies=1, limit=None, max_frames=None, frame_step=1,
         overlay=False, overlay_fps=10, montage_frames=12,
         output_dir=None, **_ignored):
     """Directional analysis over every ``*RGB.tif`` movie under ``main_dir``.
@@ -326,42 +451,68 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
     # time between *analysed* frames (folds in temporal subsampling)
     base_dt = (1.0 / frame_rate_hz) if frame_rate_hz else 1.0
     dt_s = base_dt * max(1, int(frame_step))
-    scorer = DirectionalScorer(pixel_size_nm=pixel_size_nm, dt_s=dt_s,
-                               stuck_velocity_nm_s=stuck_velocity_nm_s,
-                               head_marks_end=head_marks_end)
-    associator = HeadFilamentAssociator(
-        max_end_distance_px=max_end_distance_nm / pixel_size_nm,
-        end_fraction=end_fraction)
-    classifier = PolarityClassifier()
 
     aggregator = FrameVelocityAggregator(dt_s=dt_s)
     total_qc: Counter = Counter()
     combined_pert = None          # representative switch schedule for the pooled fit
 
-    # Parallelism: per-frame *filament* detection (the dominant cost) is mapped
-    # over `nprocs` worker processes inside detect_filaments_in_stack (option (a),
-    # mirroring fastrack.pipelines.gliding).  Movies are still processed serially
-    # in this loop, and head tracking + per-frame averaging stay on the parent
-    # (they need global frame order / cross-movie state).  Head detection is left
-    # serial as it is cheap relative to filament detection.
-    # TODO(parallelism): optionally add across-movie parallelism for many-movie
-    # runs (one worker per movie) -- weigh against the per-movie memory footprint.
-    if verbose:
-        print("[fastplus] filament detection workers: %d" % resolve_workers(nprocs))
-    for path in movies:
-        tracker = HEAD_TRACKERS.create(
-            head_tracking_algorithm, initial_search_radius=initial_search_radius,
-            kalman_search_radius=kalman_search_radius, max_frame_gap=max_frame_gap)
-        if verbose:
-            print("[fastplus]   %s" % os.path.basename(path))
+    # Parallelism — two mutually-exclusive ways to spend cores:
+    #   * within-movie (default): movies run serially here and per-frame filament
+    #     detection is mapped over `nprocs` workers inside detect_filaments_in_stack.
+    #   * across-movie (`parallel_movies` > 1): each movie runs in its own worker
+    #     process (detecting serially, since a Pool worker is daemonic and cannot
+    #     spawn its own Pool). Better for many small movies; peak memory scales
+    #     with `parallel_movies` x the per-movie footprint.
+    # Head tracking, per-frame averaging, and the combined fit always run on the
+    # parent (cross-movie state); each worker writes only its own per-movie outputs.
+    movie_workers = max(1, int(parallel_movies))
+    per_frame_nprocs = 1 if movie_workers > 1 else nprocs
 
-        # resolve this movie's external-perturbation (LED) switch schedule
-        pert = _pert.resolve(
-            path, source=perturbation_source,
-            config_switch_frames=switch_frames or None,
-            config_times_s=perturbation_times_s or None,
-            config_states=perturbation_states or None,
-            frame_interval_s=base_dt, verbose=verbose)
+    def _make_task(path):
+        return {
+            "path": path, "main_dir": main_dir, "out_root": out_root,
+            "mode": mode, "head_channel": head_channel,
+            "filament_channel": filament_channel, "channel_map": channel_map,
+            "register_channels": register_channels,
+            "head_sigma": head_sigma, "head_radius": head_radius,
+            "head_quality": head_quality, "head_subpixel": head_subpixel,
+            "head_tracking_algorithm": head_tracking_algorithm,
+            "initial_search_radius": initial_search_radius,
+            "kalman_search_radius": kalman_search_radius,
+            "max_frame_gap": max_frame_gap, "end_fraction": end_fraction,
+            "max_end_distance_nm": max_end_distance_nm,
+            "head_marks_end": head_marks_end, "pixel_size_nm": pixel_size_nm,
+            "max_inter_frame_distance_nm": max_inter_frame_distance_nm,
+            "stuck_velocity_nm_s": stuck_velocity_nm_s,
+            "detection_algorithm": detection_algorithm,
+            "detection_params": detection_params,
+            "detection_cache_layout": detection_cache_layout,
+            "export_detections": export_detections,
+            "export_detection_contours": export_detection_contours,
+            "perturbation_source": perturbation_source,
+            "switch_frames": switch_frames,
+            "perturbation_times_s": perturbation_times_s,
+            "perturbation_states": perturbation_states,
+            "base_dt": base_dt, "dt_s": dt_s,
+            "force_analysis": force_analysis, "nprocs": per_frame_nprocs,
+            "max_frames": max_frames, "frame_step": frame_step,
+            "overlay": overlay, "overlay_fps": overlay_fps,
+            "montage_frames": montage_frames, "verbose": verbose,
+        }
+
+    tasks = [_make_task(p) for p in movies]
+
+    def _consume(res):
+        nonlocal combined_pert
+        if verbose:
+            print("[fastplus]   %s%s" % (res["name"],
+                  "" if not res.get("error") else "  ERROR: " + res["error"]))
+        if res.get("error"):
+            warnings.warn("movie failed: %s (%s)" % (res["name"], res["error"]))
+            return
+        total_qc.update(res["qc"])
+        aggregator.add_movie(res["dpaths"])
+        pert = res.get("pert")
         if pert:
             if combined_pert is None:
                 combined_pert = pert
@@ -371,102 +522,20 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
                     "using the first for the pooled kinetic fit"
                     % (combined_pert.switch_frames, pert.switch_frames))
 
-        mdir = os.path.join(out_root, _safe(path, main_dir))
-        os.makedirs(mdir, exist_ok=True)
-
-        # --- detection cache (reuses STORES; keyed by movie + detection params).
-        # The hashes below decide cache identity: change any param that affects a
-        # detection and the tag changes, so the stale cache is ignored. --------- #
-        common = {"register": register_channels, "channel_map": channel_map,
-                  "max_frames": max_frames, "frame_step": frame_step}
-        fil_params = dict(common, detector=detection_algorithm,
-                          params=detection_params, channel=filament_channel)
-        head_params = dict(common, channel=head_channel, sigma=head_sigma,
-                           radius=head_radius, quality=head_quality,
-                           subpixel=head_subpixel)
-        fil_cache = DetectionCache(mdir, "fil", fil_params, layout=detection_cache_layout)
-        head_cache = DetectionCache(mdir, "head", head_params, layout=detection_cache_layout)
-
-        head_stack = None
-        cache_hit = (not force_analysis and fil_cache.count() > 0
-                     and fil_cache.count() == head_cache.count())
-        if cache_hit and not overlay:
-            # fully cached and no images needed -> skip the movie load AND detection
-            filament_frames = fil_cache.load()
-            head_frames = head_cache.load()
-            if verbose:
-                print("[fastplus]     cache hit (%d frames) -- skipped load + detect"
-                      % len(filament_frames))
+    if verbose:
+        if movie_workers > 1:
+            print("[fastplus] across-movie workers: %d (per-frame detection serial)"
+                  % min(movie_workers, len(tasks)))
         else:
-            movie = TwoChannelMovie(path, head_channel, filament_channel,
-                                    channel_map, register=register_channels)
-            head_stack, fil_stack = movie.split()
-            movie.release()
-            if max_frames or frame_step > 1:
-                sl = slice(0, max_frames, frame_step if frame_step > 1 else None)
-                head_stack, fil_stack = head_stack[sl], fil_stack[sl]
-            n = fil_stack.shape[0]
-            if verbose:
-                print("[fastplus]     %d frames, %dx%d" %
-                      (n, head_stack.shape[1], head_stack.shape[2]))
+            print("[fastplus] filament detection workers: %d" % resolve_workers(nprocs))
 
-            # filaments (the dominant cost) -- reuse cache unless forced
-            if not force_analysis and fil_cache.has_all(n):
-                filament_frames = fil_cache.load()
-                if verbose:
-                    print("[fastplus]     filaments: cache hit")
-            else:
-                filament_frames = detect_filaments_in_stack(
-                    fil_stack, detection_algorithm=detection_algorithm,
-                    detection_params=detection_params, nprocs=nprocs)
-                fil_cache.save(filament_frames)
-            # heads (cheap) -- cache too, so a later run can skip the movie load
-            if not force_analysis and head_cache.has_all(n):
-                head_frames = head_cache.load()
-            else:
-                head_frames = detect_heads_in_stack(
-                    head_stack, gaussian_sigma=head_sigma, radius=head_radius,
-                    quality_threshold=head_quality, subpixel=head_subpixel)
-                head_cache.save(head_frames)
-
-        if export_detections or export_detection_contours:
-            _export_detection_csvs(mdir, filament_frames, head_frames,
-                                   contours=export_detection_contours)
-
-        polar_by_frame = {} if overlay else None
-        if mode == "filament-centric":
-            dpaths, qc = _filament_centric_movie(
-                filament_frames, head_frames, scorer, associator, classifier,
-                tracker, max_inter_frame_distance_nm / pixel_size_nm,
-                polar_by_frame=polar_by_frame)
-        else:
-            dpaths, qc = analyze_head_centric(
-                head_frames, filament_frames, scorer=scorer, associator=associator,
-                classifier=classifier, head_tracker=tracker,
-                polar_by_frame=polar_by_frame)
-
-        total_qc.update(qc)
-        aggregator.add_movie(dpaths)
-
-        rows = [r for dp in dpaths for r in dp.to_rows()]
-        write_rows_csv(rows, os.path.join(mdir, "directional_paths.csv"),
-                       ["path_id", "source", "frame", "time_s", "signed_velocity_nm_s"])
-
-        if overlay:
-            from ..polarity.overlay import (save_classification_montage,
-                                            save_overlay_movie)
-            fil_by_frame = {i: fl for i, fl in enumerate(filament_frames)}
-            png = save_classification_montage(
-                head_stack, polar_by_frame,
-                os.path.join(mdir, "qc_overlay.png"), max_frames=montage_frames,
-                filament_by_frame=fil_by_frame)
-            mp4 = save_overlay_movie(
-                head_stack, polar_by_frame,
-                os.path.join(mdir, "qc_overlay.mp4"), fps=overlay_fps,
-                filament_by_frame=fil_by_frame)
-            if verbose:
-                print("[fastplus]     overlay:", png or "(montage skipped)",
-                      "|", mp4 or "(movie skipped)")
+    if movie_workers > 1 and len(tasks) > 1:
+        with Pool(processes=min(movie_workers, len(tasks))) as pool:
+            for res in pool.imap(_process_one_movie, tasks):
+                _consume(res)
+    else:
+        for t in tasks:
+            _consume(_process_one_movie(t))
 
     # combined per-frame averages across all movies
     fa_rows = aggregator.to_rows()

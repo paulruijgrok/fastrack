@@ -160,6 +160,11 @@ class DirectionalSettings:
     percentiles: tuple = (14, 86, 2, 98)
 
     # -- detection cache + exports -------------------------------------- #
+    #: Across-movie parallelism: number of movies analysed concurrently (one
+    #: worker process per movie). 1 = serial movies with per-frame parallelism
+    #: (the `-j` path). >1 forces per-frame detection serial inside each worker;
+    #: peak memory scales with this many movies in flight.
+    parallel_movies: int = 1
     #: Detection-cache layout: "per-movie" (one .npz per movie, modern default)
     #: or "per-frame" (one .npy per frame, legacy). Reuses the FASTrack STORES.
     #: (Named distinctly from runtime.cache_layout so it can default differently.)
