@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import asdict, dataclass, field, fields, replace
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, Optional
 
 
 @dataclass
@@ -137,8 +137,23 @@ class DirectionalSettings:
     #: that means a LAGGING head is positive (see polarity.scoring for details).
     head_marks_end: str = "plus"
 
-    # -- two-channel registration (optomerge) --------------------------- #
-    register_channels: bool = True
+    # -- two-channel input ---------------------------------------------- #
+    #: False (default): `path` is an already-registered RGB movie -- just split.
+    #: True: `path` is a raw spatially-packed movie; align + merge it into RGB
+    #: in-process via optomerge (optional dep). If optomerge is absent, FASTplus
+    #: warns and falls back to reading `path` as pre-registered RGB.
+    register_channels: bool = False
+    #: optomerge spatial layout for register=True, e.g.
+    #: "top_green_fils_bottom_red_heads"; "auto" lets optomerge detect it.
+    channel_order: str = "auto"
+    #: Feature-aligner translation search bound (px) for register=True.
+    register_max_shift: float = 30.0
+    #: Max frames used for optomerge channel/alignment detection (None = all).
+    register_frames: Optional[int] = None
+    #: Filename suffix used to discover input movies (case-insensitive). Empty =
+    #: auto: "rgb.tif" for pre-registered input, ".tif" when register_channels is
+    #: on (raw movies are not named *RGB.tif).
+    movie_suffix: str = ""
     #: "red=heads,green=filaments" style mapping; blank = use head/filament_channel.
     channel_map: str = ""
 

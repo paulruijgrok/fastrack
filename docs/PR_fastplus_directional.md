@@ -125,9 +125,12 @@ fastplus -d <DIR> --config config.plus.example.toml
 - The **filament-centric** path currently links filaments with a lightweight
   nearest-CM tracker rather than the package's greedy `Linker`; reconcile when
   that path is exercised in earnest. Head-centric is the validated path.
-- The `optomerge` registration adapter (`io/dual_channel._apply_optomerge`) is
-  written against an assumed API and needs validation against optomerge's real
-  entry points; until then run with `--no-register` on pre-aligned data.
+- Channel registration supports **two input modes** (`io/dual_channel`): a
+  pre-registered RGB movie (default), or a raw spatially-packed movie that is
+  aligned + merged in-process via the **optional** `optomerge` feature aligner
+  (`register=True`). optomerge is optional — if absent, `register=True` warns and
+  falls back to reading the input as pre-registered RGB. Bundled in the
+  `[plus-register]` extra (pinned); see `docs/fastplus.md`.
 - Head detection and the across-movie loop remain serial (both are cheap
   relative to filament detection, and this keeps peak memory bounded).
 
@@ -165,6 +168,5 @@ association / fitting would no longer pay the filament-detection cost each time.
 - Across-movie parallelism (one worker per movie) for large multi-movie runs,
   weighed against per-movie memory (`DESIGN_NOTES.md` §6).
 - Reconcile the filament-centric tracker with the greedy `Linker`.
-- Validate / finalize the `optomerge` registration adapter against its real API.
 - Optional `laptrack` head tracker (exact Jaqaman LAP) behind `[plus-laptrack]`.
 - Non-uniform frame timing from the acquisition times file (vs uniform `--spf`).

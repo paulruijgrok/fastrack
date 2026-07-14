@@ -70,22 +70,55 @@ conda activate fastrack          # the environment you created for FASTrack
 pip install -e '.[plus]'
 ```
 
-The `[plus]` extra adds:
+The `[plus]` extra adds **`tifffile`** — robust multi-page TIFF reading for the
+RGB movies. The directional code ships with the base package.
 
-- **`optomerge`** — registers (aligns) the two fluorescence channels;
-- **`tifffile`** — robust multi-page TIFF reading for the RGB movies.
+### Two input modes
 
-You do **not** need the extra if your channels are already aligned: the
-directional code itself ships with the base package, so
+FASTplus takes a two-colour, polarity-labelled movie in either of two forms:
+
+1. **Pre-registered RGB** (default) — an already-aligned RGB movie where one
+   colour channel holds the filaments and another the heads. Nothing extra
+   needed; `register` is **off**:
+
+   ```bash
+   fastplus -d <DIR_OF_ALIGNED_RGB_TIFFS> ...
+   ```
+
+2. **Raw, spatially-packed** (`--register`) — the two channels occupy different
+   regions of one camera frame (e.g. filaments top-half, heads bottom-half).
+   FASTplus aligns + merges them into an RGB movie in-process using
+   **optomerge**'s feature aligner (built for point-like heads vs line-like
+   filaments), then analyses it:
+
+   ```bash
+   fastplus -d <DIR_OF_RAW_TIFFS> --register \
+       --channel-order top_green_fils_bottom_red_heads \
+       --register-max-shift 30 --register-frames 200 ...
+   ```
+
+#### optomerge is optional
+
+In-process registration needs the optional **optomerge** package:
 
 ```bash
-pip install -e .                 # base install
-fastplus -d <DIR> ... --no-register
+pip install -e '.[plus-register]'   # adds optomerge (feature aligner)
 ```
 
-works on pre-registered data. `--no-register` skips the `optomerge` step
-entirely. (If `optomerge` is missing and registration is requested, FASTplus
-warns and proceeds on the raw channels rather than crashing.)
+If optomerge is **not** installed and `--register` is passed, FASTplus prints a
+warning and falls back to reading the input as a pre-registered RGB movie — so
+the base install always works on already-aligned data. You can also run
+optomerge's own batch driver as a separate preprocessing step (clone its repo):
+
+```bash
+python run_optomerge.py --input raw --output aligned \
+    --feature --max-shift 30 --frames 200 \
+    --channel-order top_green_fils_bottom_red_heads
+fastplus -d aligned ...              # then analyse the aligned RGB (register off)
+```
+
+Either way, optomerge writes/produces an aligned RGB movie with **red = heads,
+green = filaments** (FASTplus's default channel mapping).
 
 Verify:
 
@@ -222,7 +255,10 @@ All keys live in the `[directional]` section (plus a few shared `[hardware]` /
 | `end_fraction` | `--end-fraction` | 0.15 | fraction of length counted as an "end" |
 | `max_end_distance_nm` | `--max-end-distance` | 500 | head→tip association distance (nm) |
 | `head_marks_end` | `--head-marks` | `plus` | which end the label marks (sign convention) |
-| `register_channels` | `--register/--no-register` | on | optomerge channel registration |
+| `register_channels` | `--register/--no-register` | off | off = input is pre-registered RGB; on = raw spatially-packed, align via optomerge (optional) |
+| `channel_order` | `--channel-order` | `auto` | optomerge spatial layout for `--register` |
+| `register_max_shift` | `--register-max-shift` | 30 | feature-aligner translation bound (px) for `--register` |
+| `register_frames` | `--register-frames` | — | max frames for optomerge alignment detection |
 | `channel_map` | `--channel-map` | — | e.g. `"red=heads,green=filaments"` |
 | `perturbation_source` | `--switch-source` | `auto` | sidecar / led-csv / config / none |
 | `switch_frames` | `--switch-frames` | — | explicit switch frames (config source) |
@@ -293,8 +329,10 @@ filament) + `heads.csv`; `--export-contours` adds the full long-format
 - **Too many / too few heads** — tune `--head-quality` (higher = fewer). The
   threshold is on the raw LoG response, so it is dataset-dependent; use
   `--overlay` and inspect `qc_overlay.png`.
-- **`optomerge` install failed** — it is only needed for channel registration;
-  run with `--no-register` on pre-aligned data, or install it once its packaging
-  is finalized.
+- **Channels look misaligned in `qc_overlay.png`** — the input was not
+  registered. Either pass a raw spatially-packed movie with `--register` (needs
+  `optomerge`; install `.[plus-register]`), or pre-align it with optomerge and
+  feed FASTplus the aligned RGB. A warning about optomerge falling back to RGB
+  means `--register` was requested but `optomerge` is not installed.
 - **No `qc_overlay.mp4`** — install `ffmpeg` (`mamba install -c conda-forge
   ffmpeg`); the PNG montage is always written.

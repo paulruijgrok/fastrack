@@ -41,13 +41,20 @@ ridge-fast = ["ridge-detector-fast @ git+https://github.com/paulruijgrok/ridge-d
 # Read .xlsx dataset manifests with fast-batch (CSV/TSV need no extra dependency).
 batch = ["openpyxl>=3.0"]
 # FASTplus: directional / polarity-aware two-channel analysis (fastplus -d <dir>).
-# optomerge provides the two-channel registration; tifffile gives robust
-# multi-page TIFF IO for the RGB movies. scipy/scikit-image are already core
-# deps, so the LoG head detector and Kalman-LAP head tracker add nothing here.
-# Kept opt-in (like `ridge`) so the default install stays lean.
+# tifffile gives robust multi-page TIFF IO for the (aligned) RGB movies.
+# scipy/scikit-image are already core deps, so the LoG head detector and
+# Kalman-LAP head tracker add nothing. Kept opt-in so the default install stays
+# lean. This extra handles ALREADY-REGISTERED RGB movies with no extra deps.
 plus = [
-    "optomerge @ git+https://github.com/paulruijgrok/optomerge",
     "tifffile>=2023.1",
+]
+# Optional in-process registration of RAW spatially-packed movies: adds optomerge
+# (its feature aligner) so `fastplus --register` can align + merge the two
+# channels itself. optomerge is OPTIONAL -- without it, FASTplus falls back to
+# accepting pre-registered RGB (see io/dual_channel). Pinned for reproducibility.
+plus-register = [
+    "fastrack[plus]",
+    "optomerge @ git+https://github.com/paulruijgrok/optomerge@406d3c2",
 ]
 # Optional: use laptrack's exact Jaqaman LAP solver instead of the built-in
 # Kalman-LAP head tracker (selected by name in settings).

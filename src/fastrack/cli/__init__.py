@@ -50,6 +50,8 @@ _PLUS_CLI_TO_FIELD = {
     "end_fraction": "end_fraction", "max_end_distance": "max_end_distance_nm",
     "head_marks": "head_marks_end",
     "register": "register_channels", "channel_map": "channel_map",
+    "channel_order": "channel_order", "register_max_shift": "register_max_shift",
+    "register_frames": "register_frames", "movie_suffix": "movie_suffix",
     "switch_source": "perturbation_source", "switch_frames": "switch_frames",
     "perturb": "perturbation_times_s", "perturb_states": "perturbation_states",
     "kinetic_model": "kinetic_model", "percentiles": "percentiles",
@@ -342,9 +344,23 @@ def fastplus_main(argv=None):
                         "+ = motors stroking toward the (+)-end (for a +end label, a "
                         "lagging head is positive).")
 
-    # registration
+    # registration. Default off = input is an already-registered RGB movie.
+    # --register = input is raw spatially-packed; align + merge via optomerge
+    # (optional dep; falls back to RGB if absent). See docs/fastplus.md.
     p.add_argument("--register", action=argparse.BooleanOptionalAction, default=S,
-                   dest="register", help="register the two channels via optomerge (Default: on)")
+                   dest="register", help="input is raw spatially-packed; align the two "
+                        "channels via optomerge (Default: off = input is pre-registered RGB)")
+    p.add_argument("--channel-order", default=S, dest="channel_order",
+                   help="optomerge spatial layout for --register, e.g. "
+                        "top_green_fils_bottom_red_heads (Default: auto)")
+    p.add_argument("--register-max-shift", type=float, default=S, dest="register_max_shift",
+                   help="feature-aligner translation search bound in px for --register "
+                        "(Default: 30)")
+    p.add_argument("--register-frames", type=int, default=S, dest="register_frames",
+                   help="max frames used for optomerge alignment detection (Default: all)")
+    p.add_argument("--movie-suffix", default=S, dest="movie_suffix",
+                   help="filename suffix to discover input movies (Default: auto -- "
+                        "'rgb.tif', or '.tif' with --register)")
 
     # per-frame averaging + kinetics
     p.add_argument("--switch-source", default=S, dest="switch_source",

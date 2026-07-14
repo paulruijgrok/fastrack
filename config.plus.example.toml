@@ -63,8 +63,16 @@ max_end_distance_nm = 500.0  # max head-to-tip distance to associate
 #     "minus" label:  head LEADING  -> +   ,  head LAGGING -> -
 head_marks_end = "plus"      # plus | minus   (CLI: --head-marks)
 
-# -- two-channel registration (needs: pip install 'fastrack[plus]') --
-register_channels = true
+# -- two-channel input --
+# register_channels = false (default): input is an already-registered RGB movie.
+# register_channels = true: input is a RAW spatially-packed movie; align + merge
+#   the two channels in-process via optomerge (needs: pip install
+#   'fastrack[plus-register]'). If optomerge is absent, FASTplus warns and reads
+#   the input as pre-registered RGB instead.
+register_channels = false
+# channel_order = "top_green_fils_bottom_red_heads"  # optomerge layout (register=true)
+# register_max_shift = 30.0     # feature-aligner translation bound, px (register=true)
+# register_frames = 200         # frames used for optomerge alignment detection
 # channel_map = "red=heads,green=filaments"   # overrides head/filament_channel
 
 # -- per-frame averaging + kinetics --

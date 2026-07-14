@@ -288,6 +288,9 @@ def _process_one_movie(task: dict) -> dict:
 
         # --- detection cache (reuses STORES; keyed by movie + detection params) #
         common = {"register": t["register_channels"], "channel_map": t["channel_map"],
+                  "channel_order": t["channel_order"],
+                  "register_max_shift": t["register_max_shift"],
+                  "register_frames": t["register_frames"],
                   "max_frames": t["max_frames"], "frame_step": t["frame_step"]}
         fil_params = dict(common, detector=t["detection_algorithm"],
                           params=t["detection_params"], channel=t["filament_channel"])
@@ -308,7 +311,10 @@ def _process_one_movie(task: dict) -> dict:
             head_frames = head_cache.load()
         else:
             movie = TwoChannelMovie(t["path"], t["head_channel"], t["filament_channel"],
-                                    t["channel_map"], register=t["register_channels"])
+                                    t["channel_map"], register=t["register_channels"],
+                                    channel_order=t["channel_order"],
+                                    max_shift=t["register_max_shift"],
+                                    register_frames=t["register_frames"])
             head_stack, fil_stack = movie.split()
             movie.release()
             if t["max_frames"] or t["frame_step"] > 1:
@@ -398,7 +404,8 @@ def find_rgb_movies(root: str, suffix: str = "rgb.tif") -> List[str]:
 
 
 def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="green",
-        channel_map="", register_channels=True,
+        channel_map="", register_channels=False, channel_order="auto",
+        register_max_shift=30.0, register_frames=None, movie_suffix="",
         head_sigma=1.5, head_radius=5.0, head_quality=5.0, head_subpixel=True,
         head_tracking_algorithm="kalman-lap", initial_search_radius=20.0,
         kalman_search_radius=15.0, max_frame_gap=4,
@@ -433,17 +440,22 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
             "  (paths are resolved from the current working directory; pass an "
             "absolute path if unsure)" % (main_dir,))
 
-    movies = find_rgb_movies(main_dir)
+    # Discovery suffix: explicit override, else auto -- raw movies (register on)
+    # are not named *RGB.tif, so match all TIFFs; pre-registered input is *RGB.tif.
+    suffix = (movie_suffix.strip().lower()
+              or (".tif" if register_channels else "rgb.tif"))
+    movies = find_rgb_movies(main_dir, suffix=suffix)
     if limit:
         movies = movies[:limit]
     if not movies:
-        print("[fastplus] no *RGB.tif movies found under %s" % main_dir)
-        print("[fastplus] (discovery matches files whose name ends in 'RGB.tif', "
-              "case-insensitive, searched recursively)")
+        print("[fastplus] no *%s movies found under %s" % (suffix, main_dir))
+        print("[fastplus] (discovery matches files whose name ends in %r, "
+              "case-insensitive, searched recursively)" % suffix)
         return {"movies": 0, "qc": {}, "frame_average": [], "kinetics": None,
                 "output_dir": None}
     if verbose:
-        print("[fastplus] %d RGB movie(s) under %s" % (len(movies), main_dir))
+        print("[fastplus] %d movie(s) under %s (suffix %r)"
+              % (len(movies), main_dir, suffix))
 
     out_root = output_dir or os.path.join(main_dir, "fastplus_out")
     os.makedirs(out_root, exist_ok=True)
@@ -473,7 +485,8 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
             "path": path, "main_dir": main_dir, "out_root": out_root,
             "mode": mode, "head_channel": head_channel,
             "filament_channel": filament_channel, "channel_map": channel_map,
-            "register_channels": register_channels,
+            "register_channels": register_channels, "channel_order": channel_order,
+            "register_max_shift": register_max_shift, "register_frames": register_frames,
             "head_sigma": head_sigma, "head_radius": head_radius,
             "head_quality": head_quality, "head_subpixel": head_subpixel,
             "head_tracking_algorithm": head_tracking_algorithm,

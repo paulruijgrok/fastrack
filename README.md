@@ -275,14 +275,18 @@ exponential-rise/decay model.
 Quick start:
 
 ```bash
-pip install -e '.[plus]'         # adds optomerge (channel registration) + tifffile
-fastplus -d <DIR_OF_RGB_TIFFS> --mode head-centric --head-channel red \
+pip install -e '.[plus]'         # adds tifffile (multi-page RGB TIFF IO)
+fastplus -d <DIR_OF_ALIGNED_RGB_TIFFS> --mode head-centric --head-channel red \
     --head-quality 8 --spf 0.1356 --kinetic-model exp_rise_decay -v
 ```
 
-The directional code ships with the package; the `[plus]` extra only adds the
-two-colour **channel-registration** dependency (`optomerge`). On already-aligned
-data you can run with `--no-register` and skip the extra entirely.
+The directional code ships with the package; the `[plus]` extra only adds
+`tifffile`. FASTplus takes either **pre-registered RGB** movies (default) or
+**raw spatially-packed** movies (`--register`), aligning the two channels
+in-process with the optional [optomerge](https://github.com/paulruijgrok/optomerge)
+feature aligner (`pip install -e '.[plus-register]'`). Without optomerge,
+`--register` warns and falls back to reading the input as pre-registered RGB. See
+[docs/fastplus.md](docs/fastplus.md).
 
 **Full documentation — concept, installation, CLI/config reference,
 perturbation-timing input, outputs, and the parallel benchmark — is in

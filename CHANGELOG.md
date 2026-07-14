@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **FASTplus two-channel input registration.** `fastplus` now accepts two input
+  forms: an already-registered RGB movie (default), or a **raw, spatially-packed**
+  movie (`--register`) whose two channels occupy different regions of one camera
+  frame. In `--register` mode FASTplus aligns + merges the channels into an RGB
+  movie in-process using **optomerge**'s feature aligner (built for point-like
+  heads vs line-like filaments), then analyses it.
+- New flags: `--register`/`--no-register`, `--channel-order` (optomerge spatial
+  layout, e.g. `top_green_fils_bottom_red_heads`), `--register-max-shift`
+  (feature-aligner translation bound, px), `--register-frames` (frames used for
+  alignment detection), and `--movie-suffix` (override movie discovery).
+- `optomerge` is an **optional** dependency, isolated in the new
+  `[plus-register]` extra (pinned to a specific commit). When it is absent and
+  `--register` is requested, FASTplus warns and falls back to reading the input
+  as a pre-registered RGB movie — the base install always works on aligned data.
+
+### Changed
+
+- `register_channels` defaults to **off** (input assumed pre-registered RGB). The
+  registration parameters fold into the detection-cache key, so changing them
+  invalidates cached detections.
+- Movie discovery auto-broadens to all `*.tif` when `--register` is set (raw
+  movies are not named `*RGB.tif`); overridable with `--movie-suffix`.
+- `[plus]` no longer pulls in `optomerge` (moved to `[plus-register]`); it now
+  only adds `tifffile` for RGB TIFF IO.
+
 ## [3.0.0] - 2026-06-08
 
 Major restructure into a `src/`-layout package. **The numerical algorithm is
