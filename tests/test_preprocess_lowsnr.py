@@ -74,6 +74,82 @@ def test_frame_paths_sorted_by_index(tmp_path):
     assert got == [0, 1, 2, 10]
 
 
+def test_correct_and_stretch_compose_to_preprocess():
+    stack = _synthetic_stack()
+    a = pp.preprocess_stack(stack, flat_sigma=20)
+    b = pp.stretch_to_uint(pp.correct_stack(stack, flat_sigma=20))
+    assert np.array_equal(a, b)
+
+
+def test_smallest_row_band_picks_tight_window():
+    d = np.array([0, 0, 5, 5, 5, 0, 0], float)   # total 15
+    assert pp._smallest_row_band(d, 12.0) == (2, 5)   # shortest window with sum>=12
+
+
+def test_estimate_crop_rows_localizes_to_dense_band():
+    # method="bright" for a deterministic test (the ridge metric needs real
+    # filaments + ridge_detector; it is validated separately on real data).
+    rng = np.random.default_rng(0)
+    T, H, W = 6, 80, 48
+    corr = rng.normal(0, 0.05, (T, H, W)).clip(0).astype(np.float32)
+    corr[:, 30:50, :] += 10.0                    # bright band in rows 30-50
+    r0, r1 = pp.estimate_crop_rows(corr, frac=0.8, n_sample=4, margin=2,
+                                   method="bright")
+    assert (r1 - r0) < H                          # actually crops
+    assert 28 <= (r0 + r1) / 2 <= 52              # centered on the bright band
+
+
+def test_crop_reduces_height_and_keeps_uint8():
+    rng = np.random.default_rng(1)
+    T, H, W = 6, 80, 48
+    corr = rng.normal(0, 0.05, (T, H, W)).clip(0).astype(np.float32)
+    corr[:, 10:30, :] += 10.0
+    r0, r1 = pp.estimate_crop_rows(corr, frac=0.8, n_sample=4, margin=2,
+                                   method="bright")
+    out = pp.stretch_to_uint(corr[:, r0:r1, :])
+    assert out.shape[1] == r1 - r0 < H and out.dtype == np.uint8
+
+
+def test_estimate_crop_box_rows_only_keeps_full_width():
+    rng = np.random.default_rng(3)
+    corr = rng.normal(0, 0.05, (6, 80, 64)).clip(0).astype(np.float32)
+    corr[:, 20:50, :] += 10.0
+    r0, r1, c0, c1 = pp.estimate_crop_box(corr, frac=0.8, n_sample=4, margin=2,
+                                          method="bright", crop_cols=False)
+    assert (c0, c1) == (0, 64)                    # full width when crop_cols=False
+    assert (r1 - r0) < 80
+
+
+def test_estimate_crop_box_2d_localizes_both_axes():
+    rng = np.random.default_rng(4)
+    corr = rng.normal(0, 0.05, (6, 80, 80)).clip(0).astype(np.float32)
+    corr[:, 20:50, 30:60] += 10.0                 # a 2D blob
+    r0, r1, c0, c1 = pp.estimate_crop_box(corr, frac=0.8, n_sample=4, margin=2,
+                                          method="bright", crop_cols=True)
+    assert (r1 - r0) < 80 and (c1 - c0) < 80      # both axes cropped
+    assert 20 <= (r0 + r1) / 2 <= 50              # centered on the blob (rows)
+    assert 30 <= (c0 + c1) / 2 <= 60              # centered on the blob (cols)
+
+
+def test_estimate_crop_rows_ridge_falls_back_without_detector(monkeypatch):
+    """method='ridge' without ridge_detector warns and still returns a band."""
+    import builtins
+    real_import = builtins.__import__
+
+    def _fail(name, *a, **k):
+        if name == "ridge_detector":
+            raise ImportError("simulated missing ridge_detector")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _fail)
+    rng = np.random.default_rng(2)
+    corr = rng.normal(0, 0.05, (4, 60, 40)).clip(0).astype(np.float32)
+    corr[:, 20:40, :] += 10.0
+    with pytest.warns(RuntimeWarning, match="ridge_detector"):
+        r0, r1 = pp.estimate_crop_rows(corr, frac=0.8, n_sample=3, method="ridge")
+    assert 0 <= r0 < r1 <= 60
+
+
 def test_find_movie_dirs(tmp_path):
     import tifffile
     mv = tmp_path / "movieA" / "Pos0"
