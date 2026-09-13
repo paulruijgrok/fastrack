@@ -25,7 +25,12 @@ Mirror of the Notion session log:
   16->8-bit `cv2.IMREAD_GRAYSCALE` read crushing the low-valued frames to ~2 grey
   levels before detection; median-subtract + flat-field + denoise + full-range
   8-bit stretch fixes it. All 8 slide_01 movies now yield velocities (were empty):
-  MVEL ~1.5-1.7 um/s. Parallelised across movies (~5x). Script uncommitted.
+  MVEL ~1.5-1.7 um/s. Parallelised across movies (~5x). Committed `39952f6`.
+- **Added an optional auto-crop** (`--crop-frac`, 1D row band or 2D box with
+  `--crop-cols`) that crops each movie to the region holding ~frac of the filament
+  tracks, using the real ridge detector as the density metric. Committed `96ab7a4`.
+  Finding: on slide_01 tracks are ~uniform across the field, so cropping is a
+  near-linear area-for-tracks trade (2D gives no benefit over 1D here).
 
 ## Environment notes
 
@@ -146,6 +151,39 @@ fast -d 'examples/taka/04302026 Motility Experiment/slide_01_preprocessed' -f \
 Tuning knobs: `--flat-sigma` (residual gradient), `--clip-hi-pct` (stretch),
 `--ridge-*` thresholds; `-j N` for worker count.
 
+## Auto-crop feature (1D row band + optional 2D box)
+
+Added `--crop-frac` to `tools/preprocess_lowsnr.py`: crops each movie to the
+smallest region holding ~frac of the filament tracks, to speed the downstream
+`fast` run. Refactored `preprocess_stack` into `correct_stack` + `stretch_to_uint`
+so the crop sits **between correction and the stretch** (flat-field + full-range
+rescale unchanged; the kept region is stretched to full 8-bit range).
+
+Metric evolution (important):
+
+- First tried a **brightness proxy** (top-1% pixel density). It *over-cropped*:
+  kept 32% of the height but only ~35% of actual ridge detections, because the
+  residual gradient makes the top pixels brightest even though detections are
+  spread out. Silently losing tracks -- bad.
+- Switched to the **faithful metric**: run the actual ridge detector on decimated
+  (`--crop-downscale`, default 2) sampled frames and use the detection row/col
+  density. Retention then matches `--crop-frac` (validated: 0.8 -> 76% height ->
+  **79%** real retention; 0.6 -> 57% -> 60%). Falls back to the brightness proxy
+  (with a warning) if `ridge_detector` isn't installed.
+- `--crop-cols` generalises to a **2D bounding box** (each axis targets
+  `sqrt(frac)` so the joint box keeps ~frac).
+
+**Finding on slide_01:** single-frame detections are ~uniform in *both* axes
+(scatter + marginals in `examples/taka/_diag2/crop_distribution.png`), so cropping
+is a near-linear area-for-tracks trade -- `--crop-frac 0.8` only trims ~24% of
+area for ~20% track loss, and the 2D box gives the same 76-77% area as vertical-
+only. Practical guidance: use `0.6-0.7` for a real speedup here; 0.8 barely helps.
+Cropping earns its keep on data with a genuine productive sub-region (a bright
+patch / vignetting), which this dataset doesn't have.
+
+Flags: `--crop-frac`, `--crop-cols`, `--crop-metric ridge|bright`,
+`--crop-sample-frames`, `--crop-downscale`, `--crop-margin`. Committed `96ab7a4`.
+
 ## Open items / next steps
 
 - **Calibration before trusting the numbers:** velocities use `pixel_size_nm =
@@ -156,7 +194,7 @@ Tuning knobs: `--flat-sigma` (residual gradient), `--clip-hi-pct` (stretch),
   (loaded motility) may be the intended pipeline rather than `fast` (unloaded).
 - **WT vs E11K mean length** (~3.0 vs ~2.0 um) — check whether real or a
   detection/threshold artifact.
-- **Commit `tools/preprocess_lowsnr.py`** (new, uncommitted).
+- Preprocessing script + auto-crop committed (`39952f6`, `96ab7a4`, pushed).
 - Fold the standalone preprocessing into the cross-pipeline strategy later
   (option A) once it's proven on more datasets — see `docs/preprocessing_notes.md`.
 - Repin the optomerge dependency from a commit to a tagged release when available.
