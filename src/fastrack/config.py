@@ -18,6 +18,8 @@ import sys
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, Dict, Mapping, Optional
 
+from .preprocess import params_from_settings
+
 
 @dataclass
 class HardwareSettings:
@@ -92,6 +94,29 @@ class OverlaySettings:
     time_label: bool = True           # show mm:ss time (bottom-right)
     frame_interval_s: float = 1.0     # seconds/frame fallback when no metadata
     font_scale: float = 0.6
+
+
+@dataclass
+class PreprocessSettings:
+    """Opt-in illumination / low-SNR correction applied before detection.
+
+    Per movie: temporal-median background subtraction -> flat-field (divide by a
+    Gaussian-smoothed gain field) -> mild denoise -> movie-wide stretch to a
+    full-range 8-bit image.  Off by default (``enabled=False``), so existing
+    runs, output names and caches are untouched.  See docs/preprocessing.md.
+    """
+    enabled: bool = False
+    #: static-background model: "median" (robust to moving filaments), "mean", "none".
+    background: str = "median"
+    #: 0 -> fit the model on every frame (exact); N > 0 -> on N evenly spaced
+    #: frames (caps memory for long movies).
+    model_frames: int = 0
+    #: Gaussian sigma (px) of the illumination gain field; 0 disables flat-fielding.
+    flat_sigma: float = 50.0
+    #: Gaussian denoise sigma (px) after correction; 0 disables.
+    denoise_sigma: float = 0.8
+    #: upper percentile (movie-wide, corrected units) mapped to full scale.
+    clip_hi_pct: float = 99.9
 
 
 @dataclass
@@ -197,6 +222,7 @@ _SECTIONS = {
     "runtime": RuntimeSettings,
     "ridge": RidgeSettings,
     "overlay": OverlaySettings,
+    "preprocess": PreprocessSettings,
     "directional": DirectionalSettings,
 }
 
@@ -209,6 +235,7 @@ class Settings:
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
     ridge: RidgeSettings = field(default_factory=RidgeSettings)
     overlay: OverlaySettings = field(default_factory=OverlaySettings)
+    preprocess: PreprocessSettings = field(default_factory=PreprocessSettings)
     directional: DirectionalSettings = field(default_factory=DirectionalSettings)
 
     # ------------------------------------------------------------------ #
@@ -315,6 +342,7 @@ class Settings:
             "overlay_time_label": self.overlay.time_label,
             "overlay_frame_interval_s": self.overlay.frame_interval_s,
             "overlay_font_scale": self.overlay.font_scale,
+            "preprocess": params_from_settings(self.preprocess),
             "nprocs": rt.nprocs,
             "verbose": rt.verbose,
         }
@@ -339,6 +367,7 @@ class Settings:
                                  in ("ridge", "ridge-fast") else {}),
             "force_analysis": rt.force_analysis,
             "recalculate": rt.recalculate,
+            "preprocess": params_from_settings(self.preprocess),
             "nprocs": rt.nprocs,
             "verbose": rt.verbose,
         }

@@ -292,8 +292,11 @@ def _process_one_movie(task: dict) -> dict:
                   "register_max_shift": t["register_max_shift"],
                   "register_frames": t["register_frames"],
                   "max_frames": t["max_frames"], "frame_step": t["frame_step"]}
+        # Preprocessing only touches the filament channel, so only the filament
+        # cache is keyed on it (a head cache from a raw run stays valid).
         fil_params = dict(common, detector=t["detection_algorithm"],
-                          params=t["detection_params"], channel=t["filament_channel"])
+                          params=t["detection_params"], channel=t["filament_channel"],
+                          preprocess=t.get("preprocess"))
         head_params = dict(common, channel=t["head_channel"], sigma=t["head_sigma"],
                            radius=t["head_radius"], quality=t["head_quality"],
                            subpixel=t["head_subpixel"])
@@ -321,6 +324,11 @@ def _process_one_movie(task: dict) -> dict:
                 sl = slice(0, t["max_frames"], t["frame_step"] if t["frame_step"] > 1 else None)
                 head_stack, fil_stack = head_stack[sl], fil_stack[sl]
             n = fil_stack.shape[0]
+            if t.get("preprocess"):
+                # Whole split stack is already in memory here, so fit + apply
+                # directly (same maths as the gliding pipeline's frame source).
+                from ..preprocess import fit_model
+                fil_stack = fit_model(fil_stack, **t["preprocess"]).apply_stack(fil_stack)
             if not force and fil_cache.has_all(n):
                 filament_frames = fil_cache.load()
             else:
@@ -421,12 +429,16 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         force_analysis=False, recalculate=False, nprocs=None, verbose=False,
         parallel_movies=1, limit=None, max_frames=None, frame_step=1,
         overlay=False, overlay_fps=10, montage_frames=12,
-        output_dir=None, **_ignored):
+        output_dir=None, preprocess=None, **_ignored):
     """Directional analysis over every ``*RGB.tif`` movie under ``main_dir``.
 
     Collects per-frame signed velocities across all movies (identical format),
     writes per-movie and combined outputs, and -- if perturbation times and a
     kinetic model are given -- fits exp rise/decay to the frame-averaged trace.
+
+    ``preprocess``: ``None`` (off) or a recipe dict (see
+    :data:`fastrack.preprocess.DEFAULT_PARAMS`) applied to the *filament*
+    channel after the channel split and before detection.
     """
     from ..core.tracking import HEAD_TRACKERS
     from ..io.dual_channel import TwoChannelMovie
@@ -511,6 +523,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
             "max_frames": max_frames, "frame_step": frame_step,
             "overlay": overlay, "overlay_fps": overlay_fps,
             "montage_frames": montage_frames, "verbose": verbose,
+            "preprocess": dict(preprocess) if preprocess else None,
         }
 
     tasks = [_make_task(p) for p in movies]

@@ -259,6 +259,26 @@ runs — only the optional tracking movie is skipped, with a notice. Skeleton/pa
 image compositing is done in pure Python (Pillow), so no ImageMagick install is
 required on any platform.
 
+### Optional: preprocessing for low-SNR / uneven-illumination movies
+
+Some acquisitions are low-contrast, sit at the bottom of the 16-bit range and
+have a strong illumination gradient; the default read crushes them to a couple of
+grey levels and detection finds only the brightest band. `--preprocess` corrects
+each movie before detection (temporal-median background subtraction, flat-field,
+denoise, full-range 8-bit stretch), for `fast` and `fastplus` alike:
+
+```bash
+fast -d <dataset> -f --preprocess --detector ridge \
+     --ridge-line-widths 3 5 --ridge-low-contrast 18 --ridge-high-contrast 50 --ridge-min-len 12
+```
+
+Results go to their own output tree (`...__pp_<hash>/`) with their own cache.
+Knobs (`--pp-flat-sigma`, `--pp-denoise-sigma`, `--pp-clip-hi-pct`,
+`--pp-background`, `--pp-model-frames` for long movies), the `[preprocess]`
+config section, how it is wired in, and the standalone
+`tools/preprocess_lowsnr.py` (writes corrected movies to disk, with optional
+auto-crop) are described in [docs/preprocessing.md](docs/preprocessing.md).
+
 ## FASTplus — directional (polarity-aware) analysis (optional)
 
 **FASTplus** extends FASTrack to **two-colour, polarity-labelled** gliding
@@ -392,7 +412,8 @@ fast -d <dataset> --config base.toml --overlay-fps 24     # file + CLI override
 ```
 
 A fully-commented `config.example.toml` at the repo root lists every section
-(`[hardware]`, `[analysis]`, `[plotting]`, `[runtime]`, `[ridge]`, `[overlay]`)
+(`[hardware]`, `[analysis]`, `[plotting]`, `[runtime]`, `[ridge]`, `[preprocess]`,
+`[overlay]`)
 and key. Only the keys you set are applied; the rest keep their defaults. TOML
 config requires Python 3.11+.
 

@@ -19,6 +19,8 @@ import numpy as np
 from ..core.detection import DETECTORS
 from ..core.frame import Frame
 from ..core.input import open_source
+from ..core.input.preprocessed import model_filename
+from .. import preprocess as _pp
 from ..core.motility import Motility
 from ..io.stores import STORES
 from .discovery import _MM_FRAME_RE, discover_movies, group_by_top_root
@@ -126,10 +128,16 @@ def run(
     export_contours=False,
     frame_rate=None,
     input_format="auto",
+    preprocess=None,
     nprocs=None,
     verbose=False,
 ):
-    """Run the full FAST analysis over a directory tree of movies."""
+    """Run the full FAST analysis over a directory tree of movies.
+
+    ``preprocess``: ``None`` (off) or a recipe dict (see
+    :data:`fastrack.preprocess.DEFAULT_PARAMS`) applied to every frame before
+    detection via :class:`~fastrack.core.input.PreprocessedSource`.
+    """
     detection_params = dict(detection_params or {})
 
     # Non-default detectors get their own output tree and filXYs cache so they
@@ -137,6 +145,13 @@ def run(
     # defaults keep the original names unchanged (golden-master safe).
     det_dir_tag = "" if detection_algorithm == "entropy" else "__det_" + detection_algorithm
     cache_tag = "" if detection_algorithm == "entropy" else "_" + detection_algorithm
+    # Preprocessing changes the pixels every detector sees, so it is part of both
+    # the output-tree name and the filXYs cache key: a raw run and a corrected
+    # run (or two different recipes) never share results.
+    if preprocess:
+        pp_hash = _pp.params_hash(preprocess)
+        det_dir_tag += "__pp_" + pp_hash
+        cache_tag += "_pp" + pp_hash
     if nprocs is None:
         # Frame extraction is the dominant, embarrassingly-parallel stage, so
         # default to all logical cores (override with -j).
@@ -313,7 +328,17 @@ def run(
                 os.makedirs(work_dir, exist_ok=True)
                 source_descriptor = {
                     "kind": "tiff_stack", "path": movie["input"], "frame_rate": (frame_rate or 1.0)}
+            if preprocess:
+                # Wrap the raw source; the model is fitted once here (parent) and
+                # saved in the work dir, so pool workers load it instead of
+                # re-reading the whole movie each.
+                source_descriptor = {
+                    "kind": "preprocessed", "inner": source_descriptor,
+                    "params": dict(preprocess),
+                    "model_path": os.path.join(work_dir, model_filename(preprocess))}
             src = open_source(source_descriptor)
+            if preprocess and src.frame_numbers():
+                src.ensure_model(force=force_analysis)
 
             store = STORES.create(
                 "per-movie" if cache_layout == "per-movie" else "npy")

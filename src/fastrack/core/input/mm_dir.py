@@ -71,6 +71,14 @@ class MicroManagerDirSource(FrameSource):
             raise FileNotFoundError(self._path(frame_no))
         return to_pipeline_image(img8)
 
+    def read_raw(self, frame_no):
+        img = cv2.imread(self._path(frame_no), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise FileNotFoundError(self._path(frame_no))
+        if img.ndim == 3:                     # grayscale stored with a channel axis
+            img = img[..., 0]
+        return img
+
     def elapsed_times(self):
         meta = os.path.join(self.directory, "metadata.txt")
         if not os.path.isfile(meta):

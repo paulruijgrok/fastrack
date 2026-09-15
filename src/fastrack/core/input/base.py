@@ -65,6 +65,16 @@ class FrameSource(ABC):
     def read(self, frame_no):
         """Return frame ``frame_no`` as an ``(H, W)`` uint16 image."""
 
+    def read_raw(self, frame_no):
+        """Return frame ``frame_no`` at native bit depth, *without* the legacy
+        16->8->16 quantisation of :func:`to_pipeline_image`.
+
+        Preprocessing needs the full dynamic range (the quantisation is exactly
+        what crushes low-count data); sources that can't provide it fall back to
+        the pipeline image.
+        """
+        return self.read(frame_no)
+
     def frame_numbers(self):
         """Frame indices to process (default: ``0 .. count-1``)."""
         return list(range(self.count))

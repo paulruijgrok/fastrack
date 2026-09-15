@@ -48,12 +48,16 @@ class TiffStackSource(FrameSource):
         return self._count
 
     def read(self, frame_no):
+        return to_pipeline_image(self.read_raw(frame_no))
+
+    def read_raw(self, frame_no):
         self._open()
         if self._tf is not None:
             page = self._tf.pages[int(frame_no)].asarray()
         else:
             page = self._pages[int(frame_no)]
-        return to_pipeline_image(page)
+        page = np.asarray(page)
+        return page[..., 0] if page.ndim == 3 else page
 
     def elapsed_times(self):
         """Best-effort per-frame seconds from embedded metadata, else None."""

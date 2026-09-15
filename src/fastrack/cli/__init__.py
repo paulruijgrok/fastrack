@@ -35,7 +35,32 @@ _CLI_TO_FIELD = {
     "overlay_fps": "fps", "overlay_frame_label": "frame_label",
     "overlay_time_label": "time_label", "overlay_frame_interval": "frame_interval_s",
     "overlay_font_scale": "font_scale",
+    "preprocess": "enabled", "pp_background": "background",
+    "pp_model_frames": "model_frames", "pp_flat_sigma": "flat_sigma",
+    "pp_denoise_sigma": "denoise_sigma", "pp_clip_hi_pct": "clip_hi_pct",
 }
+
+
+def _add_preprocess_args(parser, S=argparse.SUPPRESS):
+    """``--preprocess`` and its knobs (shared by ``fast`` and ``fastplus``)."""
+    g = parser.add_argument_group(
+        "preprocessing (illumination / low-SNR correction before detection)")
+    g.add_argument("--preprocess", action=argparse.BooleanOptionalAction, default=S,
+                   dest="preprocess",
+                   help="correct each movie before detection: temporal-median "
+                        "background subtraction, flat-field, denoise, full-range "
+                        "8-bit stretch (Default: off)")
+    g.add_argument("--pp-background", default=S, choices=["median", "mean", "none"],
+                   dest="pp_background", help="static-background model (Default: median)")
+    g.add_argument("--pp-model-frames", type=int, default=S, dest="pp_model_frames",
+                   help="fit the correction on N evenly spaced frames instead of all "
+                        "(caps memory on long movies; Default: 0 = all)")
+    g.add_argument("--pp-flat-sigma", type=float, default=S, dest="pp_flat_sigma",
+                   help="illumination gain-field Gaussian sigma in px, 0 = off (Default: 50)")
+    g.add_argument("--pp-denoise-sigma", type=float, default=S, dest="pp_denoise_sigma",
+                   help="post-correction denoise sigma in px, 0 = off (Default: 0.8)")
+    g.add_argument("--pp-clip-hi-pct", type=float, default=S, dest="pp_clip_hi_pct",
+                   help="upper percentile mapped to full scale (Default: 99.9)")
 
 
 #: fastplus-only argparse dests -> flat DirectionalSettings field names.
@@ -154,6 +179,7 @@ def fast_main(argv=None):
                         help="seconds per frame for the time label when no metadata (Default:1.0)")
     parser.add_argument("--overlay-font-scale", type=float, default=S, dest="overlay_font_scale",
                         help="overlay label font scale (Default:0.6)")
+    _add_preprocess_args(parser)
     parser.add_argument("-v", action="store_true", default=S, help="verbose output for debugging")
     args = parser.parse_args(argv)
 
@@ -434,6 +460,7 @@ def fastplus_main(argv=None):
                    help="analyse this many movies concurrently (one process each). "
                         ">1 runs per-frame detection serially; peak memory scales "
                         "with this count. Best for many small movies. (Default: 1)")
+    _add_preprocess_args(p)
     p.add_argument("-v", action="store_true", default=S, dest="v", help="verbose output")
     args = p.parse_args(argv)
 

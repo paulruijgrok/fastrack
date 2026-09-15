@@ -8,6 +8,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **In-pipeline preprocessing (`--preprocess`).** Opt-in illumination / low-SNR
+  correction before detection, for both `fast` and `fastplus`: temporal-median
+  background subtraction → flat-field (Gaussian gain field) → mild denoise →
+  movie-wide full-range 8-bit stretch. Implemented at the frame-source seam as a
+  `PreprocessedSource` wrapper (gliding) and applied to the split filament stack
+  (directional); the model is fitted once per movie, saved next to the detection
+  cache, and loaded by the worker processes. `--pp-model-frames N` fits on N
+  evenly spaced frames for movies too long to hold in memory. New `[preprocess]`
+  config section and `--pp-*` flags; recipe hashed into output-tree names and
+  cache keys so raw and corrected runs never collide. `tools/preprocess_lowsnr.py`
+  now delegates to the shared `fastrack.preprocess` module. Docs:
+  `docs/preprocessing.md`.
+- `FrameSource.read_raw()` — native-bit-depth page read (no 16→8→16
+  quantisation) on both frame-folder and TIFF-stack sources.
+
 - **FASTplus two-channel input registration.** `fastplus` now accepts two input
   forms: an already-registered RGB movie (default), or a **raw, spatially-packed**
   movie (`--register`) whose two channels occupy different regions of one camera

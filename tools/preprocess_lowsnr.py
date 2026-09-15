@@ -45,15 +45,16 @@ Batch behaviour: every movie under ``-i`` is processed independently and
 fail-isolated (one bad movie is logged and skipped, the rest continue). Re-runs
 skip movies whose output already exists unless ``--force`` is given.
 
-This is intentionally a separate script, not wired into the pipeline, while the
-broader cross-pipeline preprocessing strategy is scoped (see
-docs/preprocessing_notes.md).
+The same correction is available inside the pipelines (``fast --preprocess``,
+``fastplus --preprocess``; see docs/preprocessing.md) via the shared
+``fastrack.preprocess`` module.  This tool remains the way to *materialise*
+corrected movies -- for inspection, for auto-cropping, or for feeding tools that
+read TIFFs directly.
 """
 from __future__ import annotations
 
 import argparse
 import glob
-import multiprocessing
 import os
 import re
 import shutil
@@ -75,7 +76,6 @@ except ImportError:                                   # pragma: no cover
     def _imread(p): return np.asarray(iio.imread(p))
     def _imwrite(p, a): iio.imwrite(p, a)
 
-from scipy.ndimage import gaussian_filter
 
 # Matches FASTrack's MicroManager frame convention (core/input/mm_dir.py).
 _FRAME_RE = re.compile(r"^img_\d+_.*_000\.tif$")
@@ -108,66 +108,11 @@ def frame_paths(movie_dir: str) -> List[str]:
 
 
 # --------------------------------------------------------------------------- #
-# core preprocessing
+# core preprocessing -- shared with the in-pipeline stage (fastrack.preprocess)
 # --------------------------------------------------------------------------- #
-def correct_stack(stack: np.ndarray, *, background: str = "median",
-                  flat_sigma: float = 50.0, denoise_sigma: float = 0.8) -> np.ndarray:
-    """Background-subtract, flat-field and denoise a ``(T, H, W)`` stack.
-
-    Returns a clipped (>= 0) float32 stack in corrected units (background -> 0).
-    The final full-range stretch is applied separately (:func:`stretch_to_uint`),
-    so callers can crop between correction and stretch.
-
-    Parameters
-    ----------
-    background : "median" | "mean" | "none"
-        Static-background model subtracted from every frame. ``median`` is the
-        most robust to moving filaments and stuck junk.
-    flat_sigma : float
-        Gaussian sigma (px) for the smooth illumination gain field. 0 disables
-        flat-fielding (subtraction only).
-    denoise_sigma : float
-        Gaussian denoise sigma (px) applied after correction. 0 disables it.
-    """
-    stack = stack.astype(np.float32, copy=False)
-
-    if background == "median":
-        bg = np.median(stack, axis=0)
-    elif background == "mean":
-        bg = stack.mean(axis=0)
-    elif background == "none":
-        bg = np.zeros(stack.shape[1:], np.float32)
-    else:
-        raise ValueError("background must be 'median', 'mean' or 'none'")
-
-    corr = stack - bg[None]
-
-    if flat_sigma and flat_sigma > 0:
-        gain = gaussian_filter(stack.mean(axis=0), flat_sigma)
-        gain = gain / max(float(gain.mean()), 1e-6)
-        corr = corr / gain[None]
-
-    if denoise_sigma and denoise_sigma > 0:
-        corr = np.stack([gaussian_filter(c, denoise_sigma) for c in corr])
-
-    return np.clip(corr, 0, None)                     # background -> 0
-
-
-def stretch_to_uint(corr: np.ndarray, *, clip_hi_pct: float = 99.9,
-                    bit_depth: int = 8) -> np.ndarray:
-    """Movie-wide contrast stretch of a corrected float stack to full-range uint.
-
-    ``clip_hi_pct`` is the upper percentile (over the whole passed stack) mapped
-    to the max output value; 0 maps to 0. A single movie-wide mapping keeps
-    intensities comparable across frames. ``bit_depth`` 8 (recommended, sidesteps
-    FASTrack's 16->8 read crush) or 16.
-    """
-    hi = max(float(np.percentile(corr, clip_hi_pct)), 1e-6)
-    if bit_depth == 8:
-        return np.clip(corr / hi * 255.0, 0, 255).astype(np.uint8)
-    if bit_depth == 16:
-        return np.clip(corr / hi * 65535.0, 0, 65535).astype(np.uint16)
-    raise ValueError("bit_depth must be 8 or 16")
+from fastrack.preprocess import (  # noqa: E402,F401  (preprocess_stack re-exported)
+    correct_stack, preprocess_stack, stretch_to_uint,
+)
 
 
 def _smallest_row_band(density: np.ndarray, target: float):
@@ -290,19 +235,6 @@ def estimate_crop_rows(corr: np.ndarray, *, frac: float = 0.8, n_sample: int = 8
         corr, frac=frac, n_sample=n_sample, margin=margin, method=method,
         downscale=downscale, clip_hi_pct=clip_hi_pct, crop_cols=False)
     return (r0, r1)
-
-
-def preprocess_stack(stack: np.ndarray, *, background: str = "median",
-                     flat_sigma: float = 50.0, denoise_sigma: float = 0.8,
-                     clip_hi_pct: float = 99.9, bit_depth: int = 8) -> np.ndarray:
-    """Correct + stretch a ``(T, H, W)`` stack to a full-range uint stack (no crop).
-
-    Thin wrapper over :func:`correct_stack` + :func:`stretch_to_uint` for direct
-    use; the CLI path crops between the two when ``--crop-frac`` is set.
-    """
-    corr = correct_stack(stack, background=background, flat_sigma=flat_sigma,
-                          denoise_sigma=denoise_sigma)
-    return stretch_to_uint(corr, clip_hi_pct=clip_hi_pct, bit_depth=bit_depth)
 
 
 # --------------------------------------------------------------------------- #

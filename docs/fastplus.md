@@ -276,7 +276,11 @@ All keys live in the `[directional]` section (plus a few shared `[hardware]` /
 Shared knobs used by FASTplus: `[hardware] pixel_size_nm`, `[hardware]
 frame_rate_hz` (or the CLI sugar `--spf` seconds-per-frame), `[analysis]
 detection_algorithm` (the filament detector — `entropy`, `ridge`, `ridge-fast`),
-and `[analysis] stuck_velocity_nm_s`.
+and `[analysis] stuck_velocity_nm_s`. The optional `[preprocess]` section
+(`--preprocess`, `--pp-*` flags) corrects the filament channel for low SNR /
+uneven illumination before detection — see
+[docs/preprocessing.md](preprocessing.md); the recipe is part of the filament
+detection-cache key.
 
 Quick-test flags: `--limit N` (first N movies), `--max-frames N`, `--frame-step K`.
 

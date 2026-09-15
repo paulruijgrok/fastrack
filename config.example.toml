@@ -52,6 +52,14 @@ max_len = 0.0                         # 0 = no upper limit
 dark_line = false                     # false = bright filaments on dark background
 estimate_width = true
 
+[preprocess]                          # opt-in illumination / low-SNR correction
+enabled = false                       # fast --preprocess / fastplus --preprocess
+background = "median"                 # median | mean | none (static-background model)
+model_frames = 0                      # 0 = fit on all frames; N = N evenly spaced frames
+flat_sigma = 50.0                     # gain-field Gaussian sigma (px); 0 = no flat-field
+denoise_sigma = 0.8                   # post-correction denoise sigma (px); 0 = off
+clip_hi_pct = 99.9                    # movie-wide percentile mapped to full scale
+
 [overlay]                             # styling for the --overlay-movie output
 fps = 10.0
 frame_label = true                    # frame number, bottom-left

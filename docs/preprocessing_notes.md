@@ -1,9 +1,10 @@
-# Preprocessing for low-SNR / uneven-illumination movies (placeholder)
+# Preprocessing for low-SNR / uneven-illumination movies — diagnosis notes
 
-**Status: findings + proposed plans only. Not implemented.** Held pending a
-comprehensive, cross-pipeline preprocessing strategy (gliding `fast`, directional
-`fastplus`, loaded `lima`). This page records what was diagnosed on one dataset
-so the eventual design starts from evidence rather than from scratch.
+**Status: implemented.** First as the standalone `tools/preprocess_lowsnr.py`
+(option B below), then as an opt-in pipeline stage at the frame-source seam
+(option A) with a sampled-fit fallback for long movies. Usage and design of the
+shipped version: **`docs/preprocessing.md`**. This page keeps the diagnosis on
+the motivating dataset so future tuning starts from evidence.
 
 ## Motivating dataset
 
@@ -81,7 +82,7 @@ Then ridge with: `dark_line=False`, `line_widths=[3,5]`, `low_contrast≈18`,
 `high_contrast≈50`, `min_len≈12`. These are starting points, not final — they
 were tuned on one frame of one movie and need per-dataset validation.
 
-## Proposed approaches (decision deferred)
+## Approaches considered (A and B both shipped; A is the pipeline path)
 
 **A. Bake preprocessing into the FASTrack pipeline (opt-in).**
 Add a preprocessing stage at the frame-source / detection seam, selected via
@@ -96,22 +97,21 @@ new folder, then `fast --detector ridge` runs on those. Pros: fast to deliver, n
 pipeline changes, raw data untouched. Cons: two-step workflow; corrected movies
 duplicated on disk; parameters live outside the main config.
 
-## Cross-pipeline considerations (for the comprehensive strategy)
+## Cross-pipeline considerations (how the shipped design resolved them)
 
-- Preprocessing is generic and should apply to `fast` (gliding), `fastplus`
-  (directional — after channel split), and `lima` (loaded). Placing it at the
-  input/frame-source seam would let all pipelines share one implementation.
-- It interacts with the **entropy quality gate**: on flat-fielded data the gate's
-  absolute-contrast threshold (>1000, 16-bit) no longer makes sense and would need
-  rescaling or bypassing.
-- Preprocessing parameters must become part of the **detection-cache key** so that
-  changing them invalidates cached detections (mirrors how detector params and the
-  new registration params already key the cache).
-- Temporal-median subtraction needs the **whole stack** in hand, which differs
-  from the current strictly per-frame detection flow — worth accounting for in the
-  frame-source abstraction (and in the FASTplus movie-parallel / cache design).
-- Decide whether preprocessing is a distinct stage feeding the existing detectors,
-  or whether some of it (e.g. flat-fielding) belongs inside a detector variant.
+- Generic across pipelines: `fast` reads through a `PreprocessedSource` at the
+  frame-source seam; `fastplus` applies the same model to the split filament
+  stack; `lima` consumes `fast` outputs and inherits it. One implementation
+  (`fastrack.preprocess`) also backs the standalone tool.
+- **Entropy quality gate:** no change needed — the movie-wide stretch fills the
+  8-bit range, so the absolute-contrast threshold passes on corrected data.
+- **Detection-cache key:** the recipe is hashed into `fast`'s cache tag and
+  output-tree name and into `fastplus`'s filament cache params.
+- **Whole-stack requirement:** resolved by fitting the model once (parent
+  process), persisting it next to the cache, and applying it per frame in the
+  workers; `model_frames = N` fits on a sample when the stack won't fit in memory.
+- Distinct stage, not a detector variant: every detector benefits and the
+  detectors stay untouched.
 
 ## Reference material
 
