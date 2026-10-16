@@ -94,6 +94,15 @@
 
 ## Open items / next steps
 
+- **The recipe this run uses is superseded.** A parallel laptop session
+  (`2026-10-16_ridge-snr-filter`, Notion) found heavy noise over-detection with
+  the current taka config. The fix is on branch `detect-snr-filter` (`fe35a63`,
+  not pushed yet): new `config.taka.toml` (60/120, `min_len 8`, `min_snr 3`) and
+  ridge params in the filXYs cache key. That branch touches `core/frame.py`,
+  `core/motility.py` and `pipelines/gliding.py`, so it needs a rebase onto `0297717`
+  (atomic writes) before merging. Once it's on `main`, pull on Sherlock and rerun
+  with `fast_movies_launch.sh` in a new run dir. The new cache tag means no
+  stale caches are reused.
 - **Check the full run:** `tail $SCRATCH/fastrack_runs/taka_movies_2026-10-16/controller.log`;
   `COMPLETE` there means done. Then `sacct -j 48153343` (look at
   `restarts`/preemptions and the slide_03 E11K FG20_1 movie: 1 h 24 m on the laptop,
