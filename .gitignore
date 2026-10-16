@@ -34,3 +34,6 @@ fastrack_batch_logs/
 fastplus_out/
 # Stray data tree accidentally created inside the repo by an early run
 /Data/
+
+# Obsidian vault settings for the journals folder
+journals/.obsidian/

@@ -1,0 +1,7 @@
+# fast-batch manifest: all of Taka's slides, one dataset per slide.
+#   fast-batch datasets.taka.csv
+name,base_dir,config
+taka_slide_01,examples/taka/04302026 Motility Experiment/slide_01,config.taka.toml
+taka_slide_02,examples/taka/04302026 Motility Experiment/slide_02,config.taka.toml
+taka_slide_03,examples/taka/04302026 Motility Experiment/slide_03,config.taka.toml
+taka_slide_04,examples/taka/04302026 Motility Experiment/slide_04,config.taka.toml
