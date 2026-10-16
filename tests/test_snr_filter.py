@@ -156,6 +156,18 @@ def test_contour_snr_separates_line_from_noise():
     assert snr[0] > 8 and snr[1] < 3
 
 
+def test_contour_snr_median_ignores_a_spike():
+    """A cosmic-ray-like spike on a noise contour lifts the mean SNR over the
+    threshold but leaves the (default) median SNR unchanged."""
+    from fastrack.core.detection.ridge import contour_snr
+    img = _line_image()
+    img[10, 30] += 3000.0                                  # one hot pixel
+    noise_line = [StubLine([10] * 30, range(15, 45))]
+    mean = contour_snr(noise_line, img, noise_sd=3.0, statistic="mean")[0]
+    med = contour_snr(noise_line, img, noise_sd=3.0)[0]
+    assert mean > 5 and med < 3
+
+
 def test_estimate_frame_noise_on_unclipped_image():
     from fastrack.core.detection.ridge import estimate_frame_noise
     rng = np.random.default_rng(3)

@@ -37,13 +37,17 @@ def estimate_frame_noise(img):
     return 1.4826 * float(np.median(np.abs(r - np.median(r))))
 
 
-def contour_snr(contours, img, noise_sd, smooth_sigma=1.0):
+def contour_snr(contours, img, noise_sd, smooth_sigma=1.0, statistic="median"):
     """Signal-to-noise ratio of each ridge contour.
 
-    Mean of the lightly smoothed image along the centerline, minus the frame's
-    median (the background level: ~0 for preprocessed frames), divided by the
-    pixel noise.  Noise lines traced by the detector sit at SNR ~1-3; real
-    filaments are well above.  Returns a float array (one value per contour).
+    The ``statistic`` (default **median**) of the lightly smoothed image along
+    the centerline, minus the frame's median (the background level: ~0 for
+    preprocessed frames), divided by the pixel noise.  The median makes the
+    signal insensitive to isolated spikes (cosmic rays, hot pixels): a spike
+    covering less than half of the centerline does not change it.  Noise lines
+    traced by the detector sit at SNR ~1-2; real filaments are well above.
+    ``statistic="mean"`` is kept for comparison.  Returns a float array (one
+    value per contour).
     """
     from scipy.ndimage import gaussian_filter
     if not contours:
@@ -57,7 +61,9 @@ def contour_snr(contours, img, noise_sd, smooth_sigma=1.0):
     for k, cont in enumerate(contours):
         rows = np.clip(np.rint(np.asarray(cont.row, dtype=float)).astype(int), 0, h - 1)
         cols = np.clip(np.rint(np.asarray(cont.col, dtype=float)).astype(int), 0, w - 1)
-        out[k] = (sm[rows, cols].mean() - bg) / noise if len(rows) else 0.0
+        vals = sm[rows, cols]
+        sig = float(np.median(vals)) if statistic == "median" else float(vals.mean())
+        out[k] = (sig - bg) / noise if len(rows) else 0.0
     return out
 
 
@@ -104,7 +110,8 @@ class _RidgeAdapterBase(Detector):
     Parameters mirror ``ridge_detector.RidgeDetector``; defaults are tuned for
     bright filaments on a dark background (``dark_line=False``), as in the
     gliding-assay movies.  ``min_snr`` (FASTrack's own, default 0 = off) drops
-    ridges whose mean intensity is below ``min_snr`` x the frame's pixel noise
+    ridges whose median centerline intensity is below ``min_snr`` x the frame's
+    pixel noise
     (see :func:`contour_snr`); it makes the result insensitive to the contrast
     thresholds on low-SNR data, where those thresholds otherwise trace noise.  The two concrete detectors are interchangeable and
     use the same parameters -- only the underlying implementation differs.

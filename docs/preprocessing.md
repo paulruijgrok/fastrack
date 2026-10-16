@@ -148,8 +148,11 @@ denoised image, from the robust spread of differences between neighbouring
 frames (static structure cancels; moving filaments are ignored by the MAD).
 `PreprocessedSource.noise_sd()` hands it to every frame (`Frame.noise_sd`, in
 the detector's units), and the ridge detector's `min_snr` drops any ridge whose
-mean intensity along the centerline (light 1-px smoothing, minus the frame
-median) is below `min_snr` × that noise. Noise ridges sit at SNR ~1–2; real
+**median** intensity along the centerline (light 1-px smoothing, minus the frame
+median) is below `min_snr` × that noise. The median makes it insensitive to
+isolated spikes (cosmic rays, hot pixels) on a ridge; on the taka movies it
+gives the same counts as the mean to within ~10 % on the dimmest movie and ~1 %
+elsewhere. Noise ridges sit at SNR ~1–2; real
 filaments well above. The filter is in the same units for every movie, so one
 value works across a dataset, and it makes the result almost independent of the
 contrast thresholds.

@@ -84,7 +84,7 @@ class RidgeSettings:
     max_len: float = 0.0
     dark_line: bool = False
     estimate_width: bool = True
-    # Drop ridges whose mean intensity is below min_snr x the frame's pixel noise
+    # Drop ridges whose median centerline intensity is below min_snr x pixel noise
     # (0 = off).  Noise comes from the preprocessing model when --preprocess is
     # on; otherwise it is estimated from the frame.  See docs/preprocessing.md.
     min_snr: float = 0.0

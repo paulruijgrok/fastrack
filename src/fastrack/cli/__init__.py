@@ -169,8 +169,8 @@ def fast_main(argv=None):
     parser.add_argument("--ridge-dark-line", action="store_true", default=S, dest="ridge_dark_line")
     parser.add_argument("--ridge-no-width", dest="ridge_estimate_width", action="store_false", default=S)
     parser.add_argument("--ridge-min-snr", type=float, default=S, dest="ridge_min_snr",
-                        help="drop ridges whose mean intensity is below this multiple of "
-                             "the pixel noise (Default: 0 = off; ~5 with --preprocess)")
+                        help="drop ridges whose median centerline intensity is below this multiple of "
+                             "the pixel noise (Default: 0 = off; ~3 with --preprocess)")
     # Overlay-movie styling.
     parser.add_argument("--overlay-fps", type=float, default=S, dest="overlay_fps",
                         help="overlay movie playback frame rate (Default:10)")

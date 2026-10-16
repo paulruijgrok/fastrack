@@ -9,8 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Ridge signal-to-noise filter (`min_snr`).** `[ridge] min_snr` /
-  `--ridge-min-snr` (default 0 = off) drops ridges whose mean centerline
-  intensity is below `min_snr` x the frame's pixel noise. With `--preprocess`
+  `--ridge-min-snr` (default 0 = off) drops ridges whose median centerline
+  intensity (robust to cosmic-ray spikes) is below `min_snr` x the frame's pixel noise. With `--preprocess`
   the noise comes from the preprocessing model, which now measures it
   (`PreprocessModel.noise_sd`, frame-difference MAD; old saved models are
   refitted once); otherwise it is estimated per frame. Fixes over-detection of
