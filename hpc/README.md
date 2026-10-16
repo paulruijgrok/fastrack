@@ -12,13 +12,38 @@ this is the right model — and what a GPU would and wouldn't buy you — see
 
 ## One-time setup
 
-1. Install FASTrack into a conda env on the cluster (login node is fine):
+1. Install FASTrack into a Python environment on the cluster.
+
+   **Sherlock (Stanford) — module Python + repo `.venv`** (what `env.sh` uses by
+   default). Run the install inside a job, not on a login node:
+   ```bash
+   srun -p dev -t 00:45:00 -c 4 --mem=16G --pty bash
+   ml purge; ml python/3.12.1                     # don't `ml devel` again: it's sticky
+   export PIP_CACHE_DIR=$SCRATCH/.cache/pip       # keep pip's cache out of $HOME
+   python3 -m venv .venv && source .venv/bin/activate
+   pip install --upgrade pip
+   pip install --prefer-binary -e '.[plus,ridge-fast,batch,test]'
+   # compute nodes have no libGL -> use the headless OpenCV build (same `cv2`)
+   pip uninstall -y opencv-python && pip install --prefer-binary opencv-python-headless
+   # Sherlock's ffmpeg modules lack libx264 -> use imageio-ffmpeg's static build
+   pip install --prefer-binary imageio-ffmpeg
+   ln -sf "$(python -c 'import imageio_ffmpeg as f; print(f.get_ffmpeg_exe())')" .venv/bin/ffmpeg
+   pytest -q                                      # expect all pass (a few optional skips)
+   ```
+   Why these steps: Sherlock runs CentOS 7 (glibc 2.17), so the newest
+   numpy/opencv wheels don't apply and pip would try (and fail) to compile them
+   from source. `--prefer-binary` picks the newest version that has a compatible
+   wheel. The shared group conda base isn't writable, which is why we skip conda.
+
+   **Elsewhere — conda:**
    ```bash
    conda create -n fastrack-ridge python=3.11 -y && conda activate fastrack-ridge
    pip install -e '.[ridge-fast,batch]'        # drop extras you don't need
    ```
-2. Edit `hpc/env.sh` if your env name isn't `fastrack-ridge` (set `CONDA_ENV`) or
-   if conda comes from a module (`module load ...`).
+2. `hpc/env.sh` activates `<repo>/.venv` (after `ml $PYTHON_MODULE`) if it
+   exists, and otherwise falls back to conda env `$CONDA_ENV` (default
+   `fastrack-ridge`). You can override `FASTRACK_VENV`, `PYTHON_MODULE`, or
+   `CONDA_ENV` in the environment.
 3. In each `.sbatch`, set `--partition` / `--account` for your allocation and,
    optionally, uncomment the `--mail-user` line.
 
