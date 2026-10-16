@@ -74,6 +74,31 @@ state file (`fastrack_batch_logs/batch_state_shard<i>.json`), so tasks run
 concurrently without clobbering each other. `NUM_SHARDS` is derived from the
 `--array` range automatically — you only set the range in one place.
 
+## Many movies on a preemptible partition (Sherlock `owners`)
+
+A `fast-batch` task is a whole dataset (hours) and always forces a full
+recompute, so on a preemptible partition a preempted task starts over. The
+`fast_movies_*` scripts split the work into **one short task per movie**:
+
+```bash
+cd $SCRATCH/fastrack_runs/<run>            # manifest + config (+ data symlink) here
+bash ~/code/fastrack/hpc/fast_movies_launch.sh datasets.csv
+tail $SCRATCH/fastrack_runs/<run>/controller.log     # progress; COMPLETE when done
+```
+
+- `fast_movie_array.sbatch` — one array task per movie (`movies.tsv`, built by
+  `manifest_movies.py`) on `owners,normal`, 2 h, 4 CPUs, 12 GB. Runs `fast`
+  **without `-f`**: detection and links are cached in the movie folder (written
+  atomically), so a requeued task resumes. Preemption is requeued by Slurm itself
+  (`--requeue`, owners `PreemptMode=REQUEUE`). Writes `done/<index>` on success.
+- `fast_movies_sweep.sbatch` — runs after the array (`afterany`). Resubmits
+  movies without a done marker plus a new sweep (`RETRY_TIME` 4 h,
+  `MAX_ROUNDS` 5), then runs `fast -d <dataset>` per dataset from the cache to
+  write `outputs/*/combined/` (~2 min per slide), and `COMPLETE`.
+- Nothing runs on the login node after the launch: no controller loop, Slurm
+  dependencies do the waiting. Re-launching in the same run dir only redoes
+  movies without a done marker.
+
 ## Restart / resume
 
 Both scripts use `--requeue`, and `fast-batch` skips datasets already completed

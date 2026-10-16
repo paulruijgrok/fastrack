@@ -30,6 +30,7 @@ from ..analysis import (  # noqa: E402
     fit_length_velocity,
     length_velocity,
 )
+from ..io.atomic import save_npy_atomic  # noqa: E402
 from ..io.images import alpha_composite  # noqa: E402
 from ..io.movie import MOVIE_WRITERS  # noqa: E402
 from ..io.stores import STORES  # noqa: E402
@@ -810,7 +811,7 @@ class Motility(MotilityPlots):
             np.savetxt(extra_fname + "max_length_velocity.txt", self.max_len_vel)
 
     def save_links(self):
-        np.save(
+        save_npy_atomic(
             self.directory + "/links%s.npy" % self.cache_tag,
             np.array(self.frame_links, dtype=object),
         )

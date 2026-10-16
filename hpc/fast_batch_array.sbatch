@@ -36,7 +36,17 @@ shift || true
 # Number of shards = size of the array range (keeps --array and sharding in sync).
 NUM_SHARDS="${NUM_SHARDS:-$(( SLURM_ARRAY_TASK_MAX - SLURM_ARRAY_TASK_MIN + 1 ))}"
 
-SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+# Slurm runs a spooled copy of this script, so $0 is not in the repo: locate the
+# original via the job's Command= (override with FASTRACK_HPC_DIR=<repo>/hpc).
+if [ -n "${FASTRACK_HPC_DIR:-}" ]; then
+    SCRIPT_DIR="$FASTRACK_HPC_DIR"
+elif [ -n "${SLURM_JOB_ID:-}" ]; then
+    SCRIPT_PATH="$(scontrol show job "$SLURM_JOB_ID" | sed -n 's/^ *Command=\([^ ]*\).*/\1/p' | head -n 1)"
+    case "$SCRIPT_PATH" in /*) ;; *) SCRIPT_PATH="${SLURM_SUBMIT_DIR}/${SCRIPT_PATH}" ;; esac
+    SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+else
+    SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+fi
 source "$SCRIPT_DIR/env.sh"
 
 if [ -n "${FAST_WORKDIR:-}" ]; then

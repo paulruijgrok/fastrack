@@ -23,6 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as py  # noqa: E402
 import matplotlib.cm as cm  # noqa: E402
 
+from ..io.atomic import save_npy_atomic  # noqa: E402
 from .filament import Filament  # noqa: E402
 from .island import Island  # noqa: E402
 
@@ -139,8 +140,8 @@ class Frame:
             filament.correlation_function()
 
     def save_filXYs(self):
-        filament_file = self.directory + "/filXYs%s%03d" % (self.cache_tag, self.frame_no)
-        np.save(filament_file, np.array(self.filXYs, dtype=object))
+        filament_file = self.directory + "/filXYs%s%03d.npy" % (self.cache_tag, self.frame_no)
+        save_npy_atomic(filament_file, np.array(self.filXYs, dtype=object))
 
     def read_filXYs(self):
         filament_file = self.directory + "/filXYs%s%03d.npy" % (self.cache_tag, self.frame_no)

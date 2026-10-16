@@ -10,6 +10,7 @@ import re
 
 import numpy as np
 
+from ..atomic import save_npy_atomic
 from .base import STORES, FilamentStore
 
 
@@ -24,9 +25,7 @@ class NpyFilamentStore(FilamentStore):
         return os.path.isfile(_path(directory, cache_tag, frame_no))
 
     def write(self, directory, cache_tag, frame_no, filXYs):
-        # np.save appends ".npy"; strip it from the target so we don't double it.
-        target = _path(directory, cache_tag, frame_no)[: -len(".npy")]
-        np.save(target, np.array(filXYs, dtype=object))
+        save_npy_atomic(_path(directory, cache_tag, frame_no), np.array(filXYs, dtype=object))
 
     def read(self, directory, cache_tag, frame_no):
         return np.load(_path(directory, cache_tag, frame_no), allow_pickle=True)

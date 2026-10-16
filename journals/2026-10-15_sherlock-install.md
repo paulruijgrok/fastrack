@@ -107,7 +107,14 @@ Sherlock branch), keep code development on Sherlock minimal, and redo
   headless; if `libGL` errors return, uninstall it again.)
 - The sbatch scripts use `--partition=possu`; the user wants `normal` for
   this project. Override with `sbatch -p normal` or change the scripts.
-- **Next: the taka redo on `normal`.** Run `fast-batch datasets.taka.csv` (array
+- **Submitted: taka redo, array job `48083434` (tasks 0-3, one slide each)** — failed in 8 s (spooled-script `env.sh` path); superseded by the per-movie run, see `2026-10-16_owners-per-movie-batch.md`.
+  Run dir `$SCRATCH/fastrack_runs/taka_redo_2026-10-15/` (contains copies of
+  `datasets.taka.csv` and `config.taka.toml` plus an `examples` symlink to the
+  data). Command: `sbatch -p normal -t 12:00:00 --array=0-3
+  hpc/fast_batch_array.sbatch datasets.taka.csv`, with 16 CPUs / 32 GB per task.
+  Laptop reference: slide_03 took 3 h 31 m. Next session: `sacct -j 48083434`,
+  `seff` per task, then compare `outputs/*/combined/MEAN_values.txt` with the laptop run.
+- (Plan, kept for reference.) **The taka redo on `normal`.** Run `fast-batch datasets.taka.csv` (array
   or a single job) on `normal` with an explicit time limit, from a run dir under
   `$SCRATCH/fastrack_runs/`. Measure memory per task with `seff`, then compare
   against the laptop results in `$SCRATCH/fastrack_runs/laptop_run_2026-10-09/`.
