@@ -23,6 +23,44 @@ import numpy as np
 from .base import DETECTORS, Detector
 
 
+def estimate_frame_noise(img):
+    """Fallback pixel-noise estimate (std) for a frame with no known noise.
+
+    Robust spread (MAD) of the residual after a 5x5 median filter.  Valid for
+    unclipped images; preprocessed frames clip the background to 0, which hides
+    half the noise -- those carry the exact value from the preprocessing model
+    in ``frame.noise_sd`` instead.
+    """
+    from scipy.ndimage import median_filter
+    f = np.asarray(img, dtype=np.float32)
+    r = f - median_filter(f, size=5)
+    return 1.4826 * float(np.median(np.abs(r - np.median(r))))
+
+
+def contour_snr(contours, img, noise_sd, smooth_sigma=1.0):
+    """Signal-to-noise ratio of each ridge contour.
+
+    Mean of the lightly smoothed image along the centerline, minus the frame's
+    median (the background level: ~0 for preprocessed frames), divided by the
+    pixel noise.  Noise lines traced by the detector sit at SNR ~1-3; real
+    filaments are well above.  Returns a float array (one value per contour).
+    """
+    from scipy.ndimage import gaussian_filter
+    if not contours:
+        return np.zeros(0)
+    f = np.asarray(img, dtype=np.float32)
+    sm = gaussian_filter(f, smooth_sigma) if smooth_sigma else f
+    bg = float(np.median(f))
+    noise = max(float(noise_sd), 1e-9)
+    h, w = f.shape[:2]
+    out = np.empty(len(contours))
+    for k, cont in enumerate(contours):
+        rows = np.clip(np.rint(np.asarray(cont.row, dtype=float)).astype(int), 0, h - 1)
+        cols = np.clip(np.rint(np.asarray(cont.col, dtype=float)).astype(int), 0, w - 1)
+        out[k] = (sm[rows, cols].mean() - bg) / noise if len(rows) else 0.0
+    return out
+
+
 def _contours_to_filxys(contours, img):
     """Convert upstream ridge ``Line`` objects into FASTrack ``filXYs`` entries.
 
@@ -65,7 +103,10 @@ class _RidgeAdapterBase(Detector):
 
     Parameters mirror ``ridge_detector.RidgeDetector``; defaults are tuned for
     bright filaments on a dark background (``dark_line=False``), as in the
-    gliding-assay movies.  The two concrete detectors are interchangeable and
+    gliding-assay movies.  ``min_snr`` (FASTrack's own, default 0 = off) drops
+    ridges whose mean intensity is below ``min_snr`` x the frame's pixel noise
+    (see :func:`contour_snr`); it makes the result insensitive to the contrast
+    thresholds on low-SNR data, where those thresholds otherwise trace noise.  The two concrete detectors are interchangeable and
     use the same parameters -- only the underlying implementation differs.
     """
 
@@ -80,8 +121,12 @@ class _RidgeAdapterBase(Detector):
         estimate_width=True,
         extend_line=False,
         correct_pos=False,
+        min_snr=0.0,
     ):
         self._detector_cls = self._import_detector_cls()
+        # Signal-to-noise post-filter (0 = off).  Not an upstream parameter, so
+        # it is kept out of ``self.params`` (which is passed to the detector).
+        self.min_snr = float(min_snr or 0.0)
         self.params = dict(
             line_widths=list(line_widths),
             low_contrast=low_contrast,
@@ -106,7 +151,14 @@ class _RidgeAdapterBase(Detector):
         """
         det = self._detector_cls(**self.params)
         det.detect_lines(frame.img)
-        frame.filXYs = _contours_to_filxys(det.contours or [], frame.img)
+        contours = det.contours or []
+        if self.min_snr > 0 and contours:
+            noise = getattr(frame, "noise_sd", None)
+            if noise is None:
+                noise = estimate_frame_noise(frame.img)
+            snr = contour_snr(contours, frame.img, noise)
+            contours = [c for c, v in zip(contours, snr) if v >= self.min_snr]
+        frame.filXYs = _contours_to_filxys(contours, frame.img)
         frame.filXY2filaments()
 
     def assess_quality(self, frame):

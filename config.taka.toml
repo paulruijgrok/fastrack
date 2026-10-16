@@ -1,6 +1,8 @@
 # Taka low-SNR motility data (04302026 Motility Experiment).
-# In-pipeline preprocessing + ridge detector, same recipe as the July
-# script-route run (tools/preprocess_lowsnr.py + fast --detector ridge).
+# In-pipeline preprocessing + ridge detector with the signal-to-noise filter
+# (tuned 2026-10-16; see docs/preprocessing.md "Detection on corrected data").
+# The 2026-10-09 batch run used low/high_contrast 18/50, min_len 12, no min_snr,
+# which traced background noise on the dimmer movies (~2000 ridges/frame).
 #   fast -d '<slide dir>' -f --config config.taka.toml
 # Requires Python 3.11+ (tomllib) -> use the fastrack-ridge conda env.
 
@@ -12,9 +14,10 @@ detection_algorithm = "ridge"
 
 [ridge]
 line_widths = [3, 5]
-low_contrast = 18.0
-high_contrast = 50.0
-min_len = 12.0
+low_contrast = 60.0
+high_contrast = 120.0
+min_len = 8.0                # px; taka filaments are short
+min_snr = 3.0                # drop ridges below 3x the movie's pixel noise
 
 [preprocess]
 enabled = true

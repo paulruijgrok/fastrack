@@ -90,6 +90,29 @@ def is_number(s):
         return False
 
 
+def detection_tags(detection_algorithm="entropy", detection_params=None, preprocess=None):
+    """``(det_dir_tag, cache_tag)``: output-tree suffix and filXYs cache key.
+
+    Non-default detectors get their own output tree and filXYs cache so they
+    never collide with (or reuse) the entropy detector's results; the entropy
+    defaults keep the original names (golden-master safe).  A non-default
+    detector's parameters are part of the cache key (``_d<hash>``) so a re-run
+    with different thresholds re-detects instead of silently reusing the
+    previous run's filaments.  Preprocessing changes the pixels every detector
+    sees, so its recipe is part of both names (``__pp_<hash>`` / ``_pp<hash>``).
+    """
+    det_dir_tag = "" if detection_algorithm == "entropy" else "__det_" + detection_algorithm
+    cache_tag = "" if detection_algorithm == "entropy" else "_" + detection_algorithm
+    if detection_algorithm != "entropy" and detection_params:
+        from ..io.detection_cache import params_hash as _det_hash
+        cache_tag += "_d" + _det_hash(dict(detection_params), 8)
+    if preprocess:
+        pp_hash = _pp.params_hash(preprocess)
+        det_dir_tag += "__pp_" + pp_hash
+        cache_tag += "_pp" + pp_hash
+    return det_dir_tag, cache_tag
+
+
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
@@ -140,18 +163,7 @@ def run(
     """
     detection_params = dict(detection_params or {})
 
-    # Non-default detectors get their own output tree and filXYs cache so they
-    # never collide with (or reuse) the entropy detector's results.  The entropy
-    # defaults keep the original names unchanged (golden-master safe).
-    det_dir_tag = "" if detection_algorithm == "entropy" else "__det_" + detection_algorithm
-    cache_tag = "" if detection_algorithm == "entropy" else "_" + detection_algorithm
-    # Preprocessing changes the pixels every detector sees, so it is part of both
-    # the output-tree name and the filXYs cache key: a raw run and a corrected
-    # run (or two different recipes) never share results.
-    if preprocess:
-        pp_hash = _pp.params_hash(preprocess)
-        det_dir_tag += "__pp_" + pp_hash
-        cache_tag += "_pp" + pp_hash
+    det_dir_tag, cache_tag = detection_tags(detection_algorithm, detection_params, preprocess)
     if nprocs is None:
         # Frame extraction is the dominant, embarrassingly-parallel stage, so
         # default to all logical cores (override with -j).

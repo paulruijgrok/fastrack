@@ -75,6 +75,15 @@ class FrameSource(ABC):
         """
         return self.read(frame_no)
 
+    def noise_sd(self):
+        """Pixel noise of :meth:`read` frames in their own units, or ``None`` if unknown.
+
+        Sources that know it (the preprocessed source measures it when fitting
+        its model) let detectors express intensity thresholds as a
+        signal-to-noise ratio, which is comparable across movies.
+        """
+        return None
+
     def frame_numbers(self):
         """Frame indices to process (default: ``0 .. count-1``)."""
         return list(range(self.count))

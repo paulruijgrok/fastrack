@@ -51,6 +51,8 @@ min_len = 10.0
 max_len = 0.0                         # 0 = no upper limit
 dark_line = false                     # false = bright filaments on dark background
 estimate_width = true
+min_snr = 0.0                         # drop ridges below min_snr x pixel noise (0 = off);
+                                      #   ~3 with [preprocess] on low-SNR data
 
 [preprocess]                          # opt-in illumination / low-SNR correction
 enabled = false                       # fast --preprocess / fastplus --preprocess

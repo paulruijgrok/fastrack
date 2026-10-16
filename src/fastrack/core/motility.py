@@ -765,8 +765,10 @@ class Motility(MotilityPlots):
         # Read the raw image via the movie's frame source.  The default
         # micro-manager source is byte-identical to the legacy read; a TIFF
         # stack reads the same pixels straight from one file.
-        img = self.get_source().read(num_frame)
+        src = self.get_source()
+        img = src.read(num_frame)
         self.frame.img = img
+        self.frame.noise_sd = src.noise_sd()
         self.frame.width, self.frame.height = img.shape
 
         # Detection is delegated to the configured strategy (default: the
