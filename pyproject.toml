@@ -72,3 +72,11 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+# A RuntimeWarning raised from FASTrack code (0/0, x/0, NaN comparisons) is
+# treated as a test failure: each one so far was either a bug or a silent
+# reject that deserved an explicit branch (see journals/2026-10-16_*).
+filterwarnings = [
+    "error::RuntimeWarning:fastrack",
+]

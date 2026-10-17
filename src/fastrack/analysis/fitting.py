@@ -34,7 +34,9 @@ def fit_length_velocity(length, velocity, fil_weights, weighted=False):
 
     params = [700, 0.001]
     best_params, success = leastsq(err, params, maxfev=1000)
-    residuals = np.array(err(best_params) / weights)
+    # Unweighted residuals, computed directly (dividing the weighted error by
+    # the weights gives 0/0 where a weight is 0).
+    residuals = np.asarray(length_velocity(length, *best_params) - velocity)
     return best_params[0], best_params[1], residuals, success
 
 
@@ -60,5 +62,7 @@ def fit_coupling_velocity(length, velocity, fil_weights, weighted=False):
 
     params = [700, 200, 500]
     best_params, success = leastsq(err, params, maxfev=1000)
-    residuals = np.array(err(best_params) / weights)
+    # Unweighted residuals, computed directly (dividing the weighted error by
+    # the weights gives 0/0 where a weight is 0).
+    residuals = np.asarray(coupling_velocity(length, *best_params) - velocity)
     return best_params[0], best_params[1], best_params[2], residuals, success

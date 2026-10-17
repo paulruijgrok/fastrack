@@ -7,6 +7,7 @@ verbatim from the original ``motility.py``; the ``fast_rank`` / ``morph_contrast
 optimizations are preserved.
 """
 import os
+import warnings
 
 import numpy as np
 
@@ -26,6 +27,21 @@ import matplotlib.cm as cm  # noqa: E402
 from ..io.atomic import save_npy_atomic  # noqa: E402
 from .filament import Filament  # noqa: E402
 from .island import Island  # noqa: E402
+
+
+def _rank_percentile(img, footprint, p0):
+    """``skimage.filters.rank.percentile`` without its bit-depth notice.
+
+    On 16-bit input (the exact reference path, ``fast_rank=False``) skimage
+    warns that "Bad rank filter performance is expected" because the local
+    histogram has thousands of bins.  That cost is the documented trade-off of
+    the exact path (``fast_rank=True`` rescales to 8 bit), so the notice is
+    silenced here -- only that message, only around these calls.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Bad rank filter performance",
+                                category=UserWarning)
+        return rank.percentile(img, footprint, p0=p0)
 
 
 class Frame:
@@ -156,11 +172,13 @@ class Frame:
         # scale; when the rank input has been rescaled to 8-bit, map the
         # threshold by the same factor so the gate keeps its meaning.
         diff_thresh = 1000.0 * scale
-        img_1 = rank.percentile(img_u, self.disk_win, p0=0.95)
-        img_0 = rank.percentile(img_u, self.disk_win, p0=0.05)
+        img_1 = _rank_percentile(img_u, self.disk_win, 0.95)
+        img_0 = _rank_percentile(img_u, self.disk_win, 0.05)
         self.img_diff = img_1.astype(np.int32) - img_0.astype(np.int32)
 
         max_diff = np.max(self.img_diff)
+        if np.max(img_1) <= 0:          # blank frame: no contrast at all
+            return "bad"
         # relative_contrast is a ratio, so it is unaffected by rescaling.
         relative_contrast = 1.0 * np.max(self.img_diff) / np.max(img_1)
 
@@ -225,8 +243,8 @@ class Frame:
             img_lo = cv2.erode(img_u, kernel)
             self.img_diff = img_hi.astype(np.int32) - img_lo.astype(np.int32)
         else:
-            img_1 = rank.percentile(img_u, self.disk_win, p0=0.95).astype(np.int32)
-            img_0 = rank.percentile(img_u, self.disk_win, p0=0.05).astype(np.int32)
+            img_1 = _rank_percentile(img_u, self.disk_win, 0.95).astype(np.int32)
+            img_0 = _rank_percentile(img_u, self.disk_win, 0.05).astype(np.int32)
             self.img_diff = img_1 - img_0
 
         self.cutoff_diff = np.mean(self.img_diff)

@@ -176,6 +176,11 @@ class MotilityPlots:
 
         Returns a tuple of summary statistics (see the original paper).  On too
         few data points it returns a tuple of ``-1`` sentinels.
+
+        ``weighted`` is accepted for backward compatibility and ignored: it
+        controlled a length-weighted coupling fit whose results were never used
+        (and which, because its length histogram mixed nm and um, never ran
+        successfully).  The fit that matters is selected by ``fit_f``.
         """
         valid = np.nonzero(self.full_len_vel[:, 0] < max_length)[0]
         self.full_len_vel = self.full_len_vel[valid, :]
@@ -266,45 +271,14 @@ class MotilityPlots:
         fil_len = self.full_len_vel[valid_filtered, 0]
         fil_vel = self.full_len_vel[valid_filtered, 1]
 
+        # Histogram edges for the figure (lengths in um, velocities in nm/s).
         l_bin_edges = np.linspace(0, max_length * 1e-3, nbins)
-        l_bin_centers = 0.5 * (l_bin_edges[:-1] + l_bin_edges[1:])
-
-        l_bin_counts, l_bin_locs = np.histogram(
-            self.full_len_vel[valid_filtered, 0], bins=l_bin_edges, density=False
-        )
-
         v_bin_edges = np.linspace(0, max_vel, nbins)
-        v_bin_centers = 0.5 * (v_bin_edges[:-1] + v_bin_edges[1:])
-
-        v_bin_counts, v_bin_locs = np.histogram(
-            self.full_len_vel[valid_filtered, 1], bins=v_bin_edges, density=True
-        )
 
         velocities_sorted = np.sort(fil_vel)[::-1]
-        top_1_num = int(np.ceil(0.01 * len(velocities_sorted)))
         top_5_num = int(np.ceil(0.05 * len(velocities_sorted)))
-
-        top_1_velocity = np.mean(velocities_sorted[:top_1_num])
         top_5_velocity = np.mean(velocities_sorted[:top_5_num])
 
-        # Length-dependent weights for the coupling fit.
-        fil_len_digitized = np.digitize(1e-3 * fil_len, l_bin_locs)
-        fil_len_digitized = np.clip(fil_len_digitized, 1, len(l_bin_counts))
-        with np.errstate(divide="ignore"):
-            fil_weights = 1.0 / l_bin_counts[fil_len_digitized - 1]
-        mean_vel_u, mean_vel_amp, mean_vel_tau, residuals, success = fit_coupling_velocity(
-            fil_len, fil_vel, fil_weights, weighted=weighted
-        )
-        std_u = np.sqrt(np.mean(residuals ** 2))
-
-        bound_prob = coupling_velocity(fil_len, 0.0, -1.0, mean_vel_tau)
-        plateu_valid = np.nonzero(bound_prob > 0.95)[0]
-        plateu_vel = fil_vel[plateu_valid]
-        mean_plateu = np.mean(plateu_vel) if len(plateu_vel) else 0.0
-        std_plateu = np.std(plateu_vel) if len(plateu_vel) else 0.0
-
-        max_index_t = np.argmax(v_bin_counts)
-        peak_vel_t = v_bin_centers[max_index_t]
 
         max_valid = np.nonzero(
             (self.max_len_vel[:, 1] > 0)
@@ -323,7 +297,6 @@ class MotilityPlots:
                 np.ones(len(self.max_len_vel[max_valid, 0])),
                 weighted=False,
             )
-            std_u = np.sqrt(np.mean(residuals ** 2))
         elif fit_f == "uyeda":
             max_vel_u, max_vel_r, residuals, success = fit_length_velocity(
                 self.max_len_vel[max_valid, 0],
@@ -331,7 +304,6 @@ class MotilityPlots:
                 np.ones(len(self.max_len_vel[max_valid, 0])),
                 weighted=False,
             )
-            std_u = np.sqrt(np.mean(residuals ** 2))
 
         exp_len = np.linspace(np.min(fil_len), 15000, 1000)
         if fit_f == "exp":

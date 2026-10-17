@@ -271,6 +271,12 @@ class Motility(MotilityPlots):
                             )
 
                             dt = new_filament2.time - new_filament1.time
+                            if dt <= 0:
+                                # At d=1 the candidate starts in the same frame
+                                # the path ends in (dt = 0): never a valid gap
+                                # link.  These were already rejected implicitly
+                                # (x/0 -> inf/NaN fails the comparisons below).
+                                continue
 
                             (
                                 overlap_score,
