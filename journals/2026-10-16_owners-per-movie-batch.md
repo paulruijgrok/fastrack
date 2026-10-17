@@ -79,6 +79,15 @@
    ~/code/fastrack/hpc/fast_movies_launch.sh datasets.taka.csv` → 38 movies
    (8 / 7 / 19 / 4), array `48153343`, sweep `48153345`.
 
+9. **Run finished; new code pulled.** The old-recipe run completed at 14:59
+   (all 38 movies on the first round, no timeouts; combine 14 min for 4 slides).
+   Then `git pull` fast-forwarded to `e91b2e0` (merged `detect-snr-filter`; the
+   atomic writes survived the merge). `pip install -e . --prefer-binary` (dev job)
+   pulled `opencv-python` back in and `cv2` failed with `libGL.so.1`. Fixed with
+   `pip uninstall -y opencv-python opencv-python-headless && pip install
+   --prefer-binary opencv-python-headless==5.0.0.93`. pytest on `e91b2e0`
+   (job `48192474`): **154 passed, 2 skipped**.
+
 ## Files / commits
 
 | File | Change |
