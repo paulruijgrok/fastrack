@@ -40,7 +40,10 @@ class PreprocessedSource(FrameSource):
             return self._model
         if self.model_path and os.path.isfile(self.model_path) and not force:
             self._model = PreprocessModel.load(self.model_path)
-            return self._model
+            if self._model.noise_sd is not None:
+                return self._model
+            # A model saved before noise_sd existed: refit once (same pixels,
+            # plus the noise estimate) and overwrite it below.
         self._model = fit_model_from_reader(
             self.inner.read_raw, self.inner.frame_numbers(), **self.params)
         if self.model_path:
@@ -71,6 +74,11 @@ class PreprocessedSource(FrameSource):
 
     def read_raw(self, frame_no):
         return self.model.apply(self.inner.read_raw(frame_no))
+
+    def noise_sd(self):
+        """Pixel noise of :meth:`read` frames, in the same (8-bit x 257) units."""
+        sd8 = self.model.output_noise_sd(bit_depth=8)
+        return None if sd8 is None else sd8 * 257.0
 
     @property
     def identity(self):

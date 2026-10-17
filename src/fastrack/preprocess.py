@@ -101,6 +101,48 @@ def apply_correction(frame: np.ndarray, bg: np.ndarray, gain: Optional[np.ndarra
     return np.clip(corr, 0, None)                     # background -> 0
 
 
+def estimate_noise_sd(frames, bg: np.ndarray, gain: Optional[np.ndarray],
+                      denoise_sigma: float = 0.8, max_pairs: int = 5) -> float:
+    """Pixel noise (standard deviation) of corrected frames, in corrected units.
+
+    Temporal-difference estimate: for pairs of frames, the robust (MAD) spread
+    of ``(a - b) / gain`` after the pipeline's denoise, divided by sqrt(2).
+    Static structure (background, residual gradient, stuck junk) cancels in the
+    difference and the MAD ignores the few percent of pixels on moving
+    filaments, so the estimate is the frame-to-frame noise of the image the
+    detector sees -- unaffected by how crowded the field is.  It is measured
+    before :func:`apply_correction` clips the background to 0 (which would hide
+    half the noise).  Uses up to ``max_pairs`` evenly spaced pairs of
+    neighbouring frames and returns their median; a single frame falls back to
+    the spread of ``frame - background``.
+
+    This is the yardstick that makes intensity thresholds comparable between
+    movies: the movie-wide stretch maps a different corrected value to full
+    scale in every movie, so the same camera noise lands at very different
+    8-bit levels (~0.5 to ~5 grey levels on one dataset).
+    """
+    frames = list(frames)
+    if not frames:
+        raise ValueError("cannot estimate noise on zero frames")
+
+    def _prep(f):
+        u = np.asarray(f, dtype=np.float32)
+        if gain is not None:
+            u = u / gain
+        if denoise_sigma and denoise_sigma > 0:
+            u = gaussian_filter(u, denoise_sigma)
+        return u
+
+    def _mad(x):
+        return 1.4826 * float(np.median(np.abs(x - np.median(x))))
+
+    if len(frames) == 1:
+        return _mad(_prep(np.asarray(frames[0], dtype=np.float32) - bg))
+    starts = sample_indices(len(frames) - 1, max_pairs)
+    return float(np.median([_mad(_prep(frames[i]) - _prep(frames[i + 1])) / np.sqrt(2.0)
+                            for i in starts]))
+
+
 def correct_stack(stack: np.ndarray, *, background: str = "median",
                   flat_sigma: float = 50.0, denoise_sigma: float = 0.8) -> np.ndarray:
     """Background-subtract, flat-field and denoise a ``(T, H, W)`` stack.
@@ -174,6 +216,7 @@ class PreprocessModel:
     gain: Optional[np.ndarray]        # (H, W) float32 normalised to mean 1, or None
     hi: float                         # corrected-units value mapped to full scale
     denoise_sigma: float = 0.8
+    noise_sd: Optional[float] = None  # pixel noise in corrected units (see estimate_noise_sd)
 
     def apply(self, frame: np.ndarray, bit_depth: int = 8) -> np.ndarray:
         """Corrected, full-range ``uint8`` (or ``uint16``) version of ``frame``."""
@@ -183,21 +226,32 @@ class PreprocessModel:
     def apply_stack(self, stack: np.ndarray, bit_depth: int = 8) -> np.ndarray:
         return np.stack([self.apply(f, bit_depth) for f in stack])
 
+    def output_noise_sd(self, bit_depth: int = 8) -> Optional[float]:
+        """``noise_sd`` expressed in the units of :meth:`apply`'s output (or None)."""
+        if self.noise_sd is None:
+            return None
+        full = 255.0 if bit_depth == 8 else 65535.0
+        return float(self.noise_sd) / self.hi * full
+
     # -- persistence (so multiprocessing workers load instead of refit) ----- #
     def save(self, path: str) -> None:
         tmp = path + ".tmp%d" % os.getpid()
         np.savez(tmp, background=self.background,
                  gain=self.gain if self.gain is not None else np.zeros(0, np.float32),
-                 hi=np.float64(self.hi), denoise_sigma=np.float64(self.denoise_sigma))
+                 hi=np.float64(self.hi), denoise_sigma=np.float64(self.denoise_sigma),
+                 noise_sd=np.float64(np.nan if self.noise_sd is None else self.noise_sd))
         os.replace(tmp + ".npz", path)   # atomic: a reader never sees a partial file
 
     @classmethod
     def load(cls, path: str) -> "PreprocessModel":
         with np.load(path) as z:
             gain = z["gain"]
+            # Models saved before noise_sd existed load with noise_sd=None.
+            noise = float(z["noise_sd"]) if "noise_sd" in z.files else float("nan")
             return cls(background=z["background"],
                        gain=None if gain.size == 0 else gain,
-                       hi=float(z["hi"]), denoise_sigma=float(z["denoise_sigma"]))
+                       hi=float(z["hi"]), denoise_sigma=float(z["denoise_sigma"]),
+                       noise_sd=None if np.isnan(noise) else noise)
 
 
 def sample_indices(n_frames: int, model_frames: int) -> list:
@@ -225,7 +279,8 @@ def fit_model(frames: Sequence[np.ndarray] | np.ndarray, *, background: str = "m
     corr = np.stack([apply_correction(f, bg, gain, denoise_sigma) for f in sub])
     return PreprocessModel(background=bg, gain=gain,
                            hi=stretch_ceiling(corr, clip_hi_pct),
-                           denoise_sigma=float(denoise_sigma))
+                           denoise_sigma=float(denoise_sigma),
+                           noise_sd=estimate_noise_sd(sub, bg, gain, denoise_sigma))
 
 
 def fit_model_from_reader(read, frame_nos: Iterable[int], **params) -> PreprocessModel:
@@ -258,7 +313,7 @@ def params_hash(params: dict, length: int = 8) -> str:
 
 __all__ = [
     "DEFAULT_PARAMS", "PreprocessModel", "apply_correction", "correct_stack",
-    "estimate_background_gain", "fit_model", "fit_model_from_reader",
+    "estimate_background_gain", "estimate_noise_sd", "fit_model", "fit_model_from_reader",
     "params_from_settings", "params_hash", "preprocess_stack", "sample_indices",
     "stretch_ceiling", "stretch_to_uint",
 ]

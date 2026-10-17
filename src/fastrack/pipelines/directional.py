@@ -186,7 +186,7 @@ def _detect_one_frame(task):
     rather than live Frame/Filament objects, so they cross the process boundary
     cheaply and carry exactly what association/scoring need (contour, cm, length).
     """
-    img, idx, algo, params, fast_rank, morph_contrast = task
+    img, idx, algo, params, fast_rank, morph_contrast, noise_sd = task
     from ..core.frame import Frame
     from ..core.detection import DETECTORS
     from ..datamodel import FilamentRecord
@@ -199,6 +199,7 @@ def _detect_one_frame(task):
     frame.frame_no = idx
     frame.img = img_as_uint(img) if img.dtype != np.uint16 else img
     frame.width, frame.height = frame.img.shape
+    frame.noise_sd = noise_sd
     try:
         det.detect(frame)
         recs = [FilamentRecord.from_filament(f) for f in frame.filaments]
@@ -211,16 +212,18 @@ def _detect_one_frame(task):
 def detect_filaments_in_stack(stack: np.ndarray, detection_algorithm: str = "entropy",
                               detection_params: Optional[dict] = None,
                               fast_rank: bool = True, morph_contrast: bool = False,
-                              nprocs=None) -> List[list]:
+                              nprocs=None, noise_sd: Optional[float] = None) -> List[list]:
     """Detect filaments on every frame of an in-memory stack, in parallel.
 
     Per-frame detection (the dominant cost) is mapped over ``nprocs`` worker
     processes (``None`` -> all cores).  Returns a list (per frame) of picklable
-    ``FilamentRecord`` objects; ordering matches the stack.
+    ``FilamentRecord`` objects; ordering matches the stack.  ``noise_sd`` is the
+    pixel noise of the frames as seen by the detector (uint16 units), when known
+    (preprocessed stacks); detectors with a signal-to-noise filter use it.
     """
     n = int(stack.shape[0])
     tasks = [(stack[t], t, detection_algorithm, detection_params,
-              fast_rank, morph_contrast) for t in range(n)]
+              fast_rank, morph_contrast, noise_sd) for t in range(n)]
     out: List[list] = [[] for _ in range(n)]
     for idx, recs in _pmap(_detect_one_frame, tasks, nprocs):
         out[idx] = recs
@@ -328,13 +331,20 @@ def _process_one_movie(task: dict) -> dict:
                 # Whole split stack is already in memory here, so fit + apply
                 # directly (same maths as the gliding pipeline's frame source).
                 from ..preprocess import fit_model
-                fil_stack = fit_model(fil_stack, **t["preprocess"]).apply_stack(fil_stack)
+                pp_model = fit_model(fil_stack, **t["preprocess"])
+                fil_stack = pp_model.apply_stack(fil_stack)
+                sd8 = pp_model.output_noise_sd(bit_depth=8)
+                # detection sees the uint8 stack promoted to uint16 (x257)
+                fil_noise_sd = None if sd8 is None else sd8 * 257.0
+            else:
+                fil_noise_sd = None
             if not force and fil_cache.has_all(n):
                 filament_frames = fil_cache.load()
             else:
                 filament_frames = detect_filaments_in_stack(
                     fil_stack, detection_algorithm=t["detection_algorithm"],
-                    detection_params=t["detection_params"], nprocs=t["nprocs"])
+                    detection_params=t["detection_params"], nprocs=t["nprocs"],
+                    noise_sd=fil_noise_sd)
                 fil_cache.save(filament_frames)
             if not force and head_cache.has_all(n):
                 head_frames = head_cache.load()

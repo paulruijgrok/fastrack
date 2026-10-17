@@ -31,7 +31,7 @@ _CLI_TO_FIELD = {
     "ridge_line_widths": "line_widths", "ridge_low_contrast": "low_contrast",
     "ridge_high_contrast": "high_contrast", "ridge_min_len": "min_len",
     "ridge_max_len": "max_len", "ridge_dark_line": "dark_line",
-    "ridge_estimate_width": "estimate_width",
+    "ridge_estimate_width": "estimate_width", "ridge_min_snr": "min_snr",
     "overlay_fps": "fps", "overlay_frame_label": "frame_label",
     "overlay_time_label": "time_label", "overlay_frame_interval": "frame_interval_s",
     "overlay_font_scale": "font_scale",
@@ -168,6 +168,9 @@ def fast_main(argv=None):
     parser.add_argument("--ridge-max-len", type=float, default=S, dest="ridge_max_len")
     parser.add_argument("--ridge-dark-line", action="store_true", default=S, dest="ridge_dark_line")
     parser.add_argument("--ridge-no-width", dest="ridge_estimate_width", action="store_false", default=S)
+    parser.add_argument("--ridge-min-snr", type=float, default=S, dest="ridge_min_snr",
+                        help="drop ridges whose median centerline intensity is below this multiple of "
+                             "the pixel noise (Default: 0 = off; ~3 with --preprocess)")
     # Overlay-movie styling.
     parser.add_argument("--overlay-fps", type=float, default=S, dest="overlay_fps",
                         help="overlay movie playback frame rate (Default:10)")

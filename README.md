@@ -195,9 +195,11 @@ pip install -e '.[ridge]'
 
 Then select it with `fast -d <dir> --detector ridge` (tune with `--ridge-*`
 flags: `--ridge-line-widths`, `--ridge-low-contrast`, `--ridge-high-contrast`,
-`--ridge-min-len`, `--ridge-dark-line`). Ridge results are written to their own
-output tree (`...__det_ridge/`) and use a separate per-frame cache, so they never
-collide with the default entropy detector. The ridge extra pulls in
+`--ridge-min-len`, `--ridge-dark-line`, `--ridge-min-snr`). Ridge results are written to their own
+output tree (`...__det_ridge/`) and use a separate per-frame cache (keyed on the
+ridge parameters), so they never collide with the default entropy detector.
+On low-SNR data use it with `--preprocess` and the signal-to-noise filter
+(`--ridge-min-snr 3`); see [`docs/preprocessing.md`](docs/preprocessing.md). The ridge extra pulls in
 `ridge-detector` **and `numba`** (the upstream package imports numba but doesn't
 declare it). numba (with LLVM) is the one heavy addition, which is why the
 default `pip install -e .` leaves it out.

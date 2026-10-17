@@ -80,6 +80,10 @@ name that keys results:
 - `fast`: the output tree gets a `__pp_<hash>` suffix (next to `__det_ridge`),
   and the per-frame filament cache tag gets `_pp<hash>`. A raw run and a
   corrected run — or two recipes — never share an output tree or a cache.
+  (The ridge parameters themselves are also in the cache tag, `_d<hash>`, so
+  changing a threshold re-detects; they are *not* in the output-tree name, so
+  two parameter sets write to the same tree — use separate working directories
+  to keep both.)
 - `fastplus`: the recipe is folded into the filament detection-cache key (the
   head cache is unaffected, since heads are not preprocessed).
 
@@ -89,9 +93,11 @@ name that keys results:
 ## Usage
 
 ```bash
-# gliding, ridge detector tuned for corrected low-SNR data
+# gliding, ridge detector tuned for corrected low-SNR data (see "Detection on
+# corrected data" below for why these values and the SNR filter)
 fast -d <dataset> -f --preprocess --detector ridge \
-     --ridge-line-widths 3 5 --ridge-low-contrast 18 --ridge-high-contrast 50 --ridge-min-len 12
+     --ridge-line-widths 3 5 --ridge-low-contrast 60 --ridge-high-contrast 120 \
+     --ridge-min-len 8 --ridge-min-snr 3
 
 # knobs (all optional)
 fast -d <dataset> --preprocess --pp-flat-sigma 40 --pp-denoise-sigma 1.0 \
@@ -124,13 +130,71 @@ directly:
 python tools/preprocess_lowsnr.py -i RAW_DIR -o CORRECTED_DIR [--crop-frac 0.7]
 ```
 
+## Detection on corrected data: the signal-to-noise filter (`min_snr`)
+
+**The problem.** The stretch (step 4) maps each movie's own 99.9th percentile to
+255, so the *same* camera noise lands at very different 8-bit levels in
+different movies — on the taka dataset the noise ranged from ~0.5 to ~5 grey
+levels (stretch ceilings 42–211 corrected counts). The ridge detector's
+`low/high_contrast` thresholds are fixed 8-bit numbers, so no single pair works:
+values that are clean on a bright movie trace noise all over a dim one. With the
+original `18/50`, ~90 % of the ~2000 ridges per frame on the dimmer movies were
+noise (curly lines through the background), which also made greedy linking —
+O(n²) in ridges per frame — take over an hour per movie.
+
+**The fix.** The preprocessing model now also measures each movie's **pixel
+noise** (`PreprocessModel.noise_sd`): the frame-to-frame noise of the corrected,
+denoised image, from the robust spread of differences between neighbouring
+frames (static structure cancels; moving filaments are ignored by the MAD).
+`PreprocessedSource.noise_sd()` hands it to every frame (`Frame.noise_sd`, in
+the detector's units), and the ridge detector's `min_snr` drops any ridge whose
+**median** intensity along the centerline (light 1-px smoothing, minus the frame
+median) is below `min_snr` × that noise. The median makes it insensitive to
+isolated spikes (cosmic rays, hot pixels) on a ridge; on the taka movies it
+gives the same counts as the mean to within ~10 % on the dimmest movie and ~1 %
+elsewhere. Noise ridges sit at SNR ~1–2; real
+filaments well above. The filter is in the same units for every movie, so one
+value works across a dataset, and it makes the result almost independent of the
+contrast thresholds.
+
+Models saved before this change have no `noise_sd`; they are refitted once (same
+pixels) the first time they are loaded. Without `--preprocess`, `min_snr` falls
+back to a per-frame estimate (MAD of the residual after a 5×5 median filter).
+
+**Recommended starting values** (validated on four taka movies spanning the
+dataset's brightness range):
+
+```toml
+[ridge]
+line_widths = [3, 5]
+low_contrast = 60.0
+high_contrast = 120.0
+min_len = 8.0      # px; taka filaments are short -- 12 dropped ~25 % of real ones
+min_snr = 3.0      # 5 starts dropping real dim filaments on bright movies
+```
+
+| movie (stretch ceiling) | ridges/frame `18/50 ml12` | `60/120 ml8` | + `min_snr 3` |
+|---|---|---|---|
+| slide_02 E11K_150nM_1 (42, dimmest) | 2332 | 1229 | 113 |
+| slide_03 E11K_250nM_FG20_1 (69) | 2379 | 128 | ~95 |
+| slide_01 E11K_300nM_2 (120) | 889 | 527 | 488 |
+| slide_02 E11K_250nM_4 (211, brightest) | — | 482 | 457 |
+
+**Effect on velocities.** Finding more (short) real filaments changes the
+population, and gliding velocity rises with filament length, so the plain mean
+velocity drops (e.g. 1575 → ~1390 nm/s on E11K_300nM_2) while velocities *within*
+a length bin agree with the old settings to ~2 %. Compare conditions at matched
+length, or report the plateau of a velocity-vs-length fit (`fit_function`),
+rather than the raw mean, when the detection settings differ.
+
 ## Tuning notes
 
-Starting values (`flat_sigma 50`, `denoise 0.8`, ridge `line_widths [3,5]`,
-`low/high_contrast 18/50`, `min_len 12`) were tuned on one dataset
-(`examples/taka/…/slide_01`) and need per-dataset validation. `flat_sigma` should
-be much larger than a filament width and smaller than the gradient's scale;
-`clip_hi_pct` trades a few saturated pixels against contrast for the rest.
+Preprocessing defaults (`flat_sigma 50`, `denoise 0.8`) were tuned on one
+dataset (`examples/taka/…/slide_01`) and need per-dataset validation.
+`flat_sigma` should be much larger than a filament width and smaller than the
+gradient's scale; `clip_hi_pct` trades a few saturated pixels against contrast
+for the rest. For the ridge settings see the section above; check a detection
+overlay on the dimmest and brightest movie of a new dataset before a batch run.
 
 ## Limitations / future work
 

@@ -8,6 +8,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Ridge signal-to-noise filter (`min_snr`).** `[ridge] min_snr` /
+  `--ridge-min-snr` (default 0 = off) drops ridges whose median centerline
+  intensity (robust to cosmic-ray spikes) is below `min_snr` x the frame's pixel noise. With `--preprocess`
+  the noise comes from the preprocessing model, which now measures it
+  (`PreprocessModel.noise_sd`, frame-difference MAD; old saved models are
+  refitted once); otherwise it is estimated per frame. Fixes over-detection of
+  background noise on dim movies, where fixed 8-bit contrast thresholds can't
+  work because the per-movie stretch puts the same camera noise at ~0.5-5 grey
+  levels. Plumbed through `FrameSource.noise_sd()` -> `Frame.noise_sd` (gliding)
+  and `detect_filaments_in_stack(noise_sd=...)` (FASTplus). Docs:
+  `docs/preprocessing.md` ("Detection on corrected data").
+
+### Changed
+
+- The `fast` filament cache tag for non-entropy detectors now includes a hash of
+  the detector parameters (`_ridge_d<hash>...`), so re-running with different
+  thresholds re-detects instead of silently reusing the previous filaments.
+  Existing ridge caches are not reused (one-time re-detection). Entropy names are
+  unchanged. Factored into `gliding.detection_tags()`.
+
 - **In-pipeline preprocessing (`--preprocess`).** Opt-in illumination / low-SNR
   correction before detection, for both `fast` and `fastplus`: temporal-median
   background subtraction → flat-field (Gaussian gain field) → mild denoise →

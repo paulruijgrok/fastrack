@@ -55,6 +55,9 @@ class Frame:
         self._morph_k = None
 
         self.img = None
+        # Pixel noise of ``img`` in its own units when the frame source knows it
+        # (preprocessed runs); used by detectors' signal-to-noise filters.
+        self.noise_sd = None
         self.img_filaments = None
         self.img_skeletons = None
 
