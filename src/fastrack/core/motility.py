@@ -226,9 +226,17 @@ class Motility(MotilityPlots):
         self.final_corr_weight = self.final_corr_weight[valid]
 
     def wire_frame_links(self, depth=5):
-        """Wire disconnected frame links to create contiguous paths."""
+        """Wire disconnected frame links to create contiguous paths.
+
+        A path that ends in frame ``f1+1`` (``frame_links[f1]``, no forward link)
+        is joined to a path that starts in frame ``f1+d`` (``frame_links[f1+d]``,
+        no reverse link) when the filaments match and the implied speed agrees
+        with both paths.  That bridges ``d-1`` missing frames, so ``depth=5``
+        closes gaps of up to 4 frames.  ``d`` starts at 2: at ``d=1`` both
+        filaments are in the same frame (dt = 0), which can never be a link.
+        """
         num_frames = len(self.frame_links)
-        for d in range(1, depth + 1):
+        for d in range(2, depth + 1):
             for f1 in range(len(self.frame_links)):
                 possible_links = [
                     link for link in self.frame_links[f1] if link.forward_link is None
@@ -272,10 +280,9 @@ class Motility(MotilityPlots):
 
                             dt = new_filament2.time - new_filament1.time
                             if dt <= 0:
-                                # At d=1 the candidate starts in the same frame
-                                # the path ends in (dt = 0): never a valid gap
-                                # link.  These were already rejected implicitly
-                                # (x/0 -> inf/NaN fails the comparisons below).
+                                # Only with duplicate/out-of-order timestamps in
+                                # the metadata; never a valid link (and x/0
+                                # below would just fail the speed checks).
                                 continue
 
                             (
