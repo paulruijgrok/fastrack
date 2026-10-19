@@ -42,6 +42,22 @@ from .link import Link, Path  # noqa: E402
 from .tracking import LINKERS  # noqa: E402
 
 
+def _gate_arrays(cache, f, links):
+    """(n, cm array, length array) of the frame-1 side of ``links``, cached.
+
+    Links only ever get *appended* to a frame's list during wiring, and the cm /
+    length of an existing link never change, so the cache is rebuilt only when
+    the list has grown.
+    """
+    ent = cache.get(f)
+    if ent is None or ent[0] != len(links):
+        cms = np.array([lk.filament1_cm for lk in links], dtype=float).reshape(-1, 2)
+        lens = np.array([lk.filament1_length for lk in links], dtype=float)
+        ent = (len(links), cms, lens)
+        cache[f] = ent
+    return ent
+
+
 class Motility(MotilityPlots):
     def __init__(self):
         self.elapsed_times = []
@@ -236,6 +252,7 @@ class Motility(MotilityPlots):
         filaments are in the same frame (dt = 0), which can never be a link.
         """
         num_frames = len(self.frame_links)
+        gate_cache = {}
         for d in range(2, depth + 1):
             for f1 in range(len(self.frame_links)):
                 possible_links = [
@@ -254,15 +271,26 @@ class Motility(MotilityPlots):
                     )
 
                     if f1 + d < num_frames:
-                        forward_links = [
-                            link
-                            for link in self.frame_links[f1 + d]
-                            if link.reverse_link is None
-                            and np.sqrt(np.sum((link.filament1_cm - new_filament1.cm) ** 2))
-                            < d * self.max_velocity
-                            and np.fabs(link.filament1_length - new_filament1.fil_length)
-                            < self.max_length_dif
-                        ]
+                        # Same gate as the original per-link comprehension
+                        # (free reverse slot, distance < d*max_velocity, length
+                        # difference < max_length_dif), evaluated with arrays:
+                        # same arithmetic, same candidate order, far fewer calls.
+                        links_fd = self.frame_links[f1 + d]
+                        if links_fd:
+                            _, cms, lens = _gate_arrays(gate_cache, f1 + d, links_fd)
+                            free = np.fromiter(
+                                (lk.reverse_link is None for lk in links_fd),
+                                dtype=bool, count=len(links_fd))
+                            dist = np.sqrt(np.sum((cms - new_filament1.cm) ** 2, axis=1))
+                            keep = np.nonzero(
+                                free
+                                & (dist < d * self.max_velocity)
+                                & (np.fabs(lens - new_filament1.fil_length)
+                                   < self.max_length_dif)
+                            )[0]
+                            forward_links = [links_fd[j] for j in keep]
+                        else:
+                            forward_links = []
                         for l2 in range(len(forward_links)):
                             link2 = forward_links[l2]
                             new_filament2 = Filament()

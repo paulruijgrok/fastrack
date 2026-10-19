@@ -66,6 +66,7 @@ fastplus = "fastrack.cli:fastplus_main"
 lima = "fastrack.cli:lima_main"
 stack2tifs = "fastrack.cli:stack2tifs_main"
 fast-batch = "fastrack.cli:fast_batch_main"
+fast-preview = "fastrack.cli:fast_preview_main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

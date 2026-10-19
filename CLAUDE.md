@@ -13,6 +13,8 @@ tracking / output seams behind a registry + `Settings`.
   pre-registered RGB movie or a raw spatially-packed movie aligned in-process via
   the optional **optomerge** feature aligner (`--register`).
 - `stack2tifs` — TIFF-stack → per-frame converter.
+- `fast-preview` — few-seconds quick look (velocity, lengths, stuck %, ranked
+  image-quality metrics) on 20 binned frames; see `docs/preview.md`.
 
 ## Environment
 
