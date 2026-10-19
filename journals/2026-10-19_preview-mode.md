@@ -97,6 +97,29 @@ poor-attachment case.
 - Default workers now = performance cores on Apple Silicon (`default_workers()`),
   since the efficiency cores made 12 slower than 8.
 
+## Focus: width measured from the image (late afternoon)
+
+- New `analysis/profile_width.py`: for each filament, perpendicular profiles
+  from the **raw** crop (cubic interpolation), re-centred on their
+  intensity-weighted centre (contours are whole pixels), median profile,
+  Gaussian + sloped-background fit → FWHM. Profiles crossing another contour
+  (dilated id map of all contours) are dropped; the window widens to 3.5σ
+  (max ±16 px) when the fit is wide.
+- Synthetic Gaussian lines: ±1 % at any angle / sub-pixel offset, unbiased by a
+  neighbour 7 px away (before the rejection: −10 … −25 %), fine at SNR 5.
+- Taka, blur simulation (σ added to the signal): in focus 250–275 nm; 1 px
+  320–370; 2 px 430–600; 3 px 380–640 (dense movies under-read: neighbours
+  merge). Detector dependence: profile FWHM differs 10–30 nm between `ridge`
+  and `ridge-fast` (detector width: 55–100 nm).
+- Preview measures the 40 longest filaments of the focus crop (median within
+  3 nm of all; 0.4–0.5 s on the cloud) **while the workers detect** the other
+  frames. Taka distribution: median 264, p10–p90 248–292, max 384 nm
+  (`slide_03/test_2`). Thresholds: good 290 → poor 380 nm (1 px defocus ≈
+  MARGINAL, 2 px POOR). Velocity etc. unchanged; median time 5.7 → 6.2 s on 2
+  cloud cores (the main process is idle during detection on the Mac).
+- Mac false focus warnings with `ridge` are gone: E11K_300nM_1 290 / 262 nm,
+  E11K_300nM_2 260 / 249, WT_300nM_1 255 / 275 (ridge / ridge-fast), all GOOD.
+
 ## Commands
 
 ```bash
@@ -125,8 +148,8 @@ Commit `de8e483` on `preview-mode` (from main `7ee7fbb`). Suite: 162 passed,
 
 ## Open items / next steps
 
-- Make the focus metric detector-independent (measure the width from the image
-  profile across each ridge) — `ridge` vs `ridge-fast` widths differ by ~60 nm.
+- Focus: check the thresholds on a real through-focus series (step the
+  objective ±0.2–0.5 µm) — the calibration so far is simulated blur.
 - Consider moving day-to-day FASTrack use to the native `fastrack-arm` env
   (run the test suite there first).
 - Optional `--watch` mode with a persistent pool for use while acquiring.

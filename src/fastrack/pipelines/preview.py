@@ -104,6 +104,23 @@ def _focus_task(crops, s, algo):
     return (img, -1, m.output_noise_sd(8) * 257.0, algo, _ridge_params(s.ridge, 1))
 
 
+FOCUS_N_FILAMENTS = 40   # longest filaments measured for focus (median is stable)
+
+
+def _focus_widths(raw_crop, filxys):
+    """Cross-section FWHM (px) of the longest filaments in the raw focus crop.
+
+    Measured from the image profile (analysis/profile_width.py), not the
+    detector's width estimate, which depends on the detector implementation
+    (``ridge`` vs ``ridge-fast`` differ by ~60 nm).  The raw, unsmoothed crop
+    is used so preprocessing blur adds nothing.
+    """
+    from ..analysis.profile_width import filament_profile_widths
+    conts = [np.asarray(e[0]) for e in filxys]
+    order = sorted(range(len(conts)), key=lambda i: -len(conts[i]))[:FOCUS_N_FILAMENTS]
+    return np.asarray(filament_profile_widths(raw_crop, conts, measure=order), float)
+
+
 def _detector_name(name):
     if name == "ridge-fast":
         try:
@@ -152,15 +169,17 @@ def _pool(nprocs, detector="ridge-fast"):
 # quality scoring
 # --------------------------------------------------------------------------- #
 #: name -> (label, unit, good, poor, advice).  Score 1 at ``good``, 0 at
-# ``poor``, linear in between (either direction; see docs/preview.md).  Anchors were calibrated on the 38-movie Taka set (bin 2, 20
-# frames; Oct 2026) plus noise-aware blur/dim simulations: e.g. full-res focus
-# width is ~265-275 nm in focus and ~370 nm at a 3 px Gaussian defocus; filament
-# SNR drops from ~12 to ~4 when the signal is cut 8x.  Treat them as starting
+# ``poor``, linear in between (either direction; see docs/preview.md).
+# Anchors were calibrated on the 38-movie Taka set (bin 2, 20 frames; Oct 2026)
+# plus noise-aware blur/dim simulations: the cross-section FWHM measured from
+# the image is 250-290 nm in focus, 320-370 nm with a 1 px (80 nm) Gaussian
+# defocus and 430-600 nm with 2 px; filament SNR drops from ~12 to ~4 when the
+# signal is cut 8x.  Treat them as starting
 # points to tune per setup.
 QUALITY_SPECS = {
     "snr": ("Filament signal-to-noise", "", 12.0, 4.0,
             "increase exposure / laser power, or reduce background fluorescence"),
-    "focus_width_nm": ("Filament width (focus)", "nm", 300.0, 380.0,
+    "focus_width_nm": ("Filament width (focus)", "nm", 290.0, 380.0,
                        "refocus (filaments look wide/blurred)"),
     "flatness": ("Illumination flatness (p5/p95 gain)", "", 0.80, 0.50,
                  "re-center / flatten the illumination (TIRF angle, beam alignment)"),
@@ -290,11 +309,14 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
     ftask = _focus_task(crops, s, algo)
     if pool is not None:
         fres = pool.apply_async(_detect, (ftask,))
-        res = pool.map(_detect, tasks)
+        rres = pool.map_async(_detect, tasks)
         focus_fx = fres.get()[1]
+        focus_px = _focus_widths(crops[len(crops) // 2], focus_fx)   # while workers detect
+        res = rres.get()
     else:
         res = [_detect(x) for x in tasks]
         focus_fx = _detect(ftask)[1]
+        focus_px = _focus_widths(crops[len(crops) // 2], focus_fx)
     filxys = {no: f for no, f, _ in res}
     signal = {no: sg for no, _, sg in res}
     T["detect"] = time.perf_counter() - t
@@ -368,7 +390,7 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
 
     det_len_um = np.array([fl.fil_length for fr in frames for fl in fr.filaments]) * dx * 1e-3
     static_len_um = np.array([len(np.asarray(e[0])) for e in static], float) * dx * 1e-3
-    widths_nm = np.array([e[1] for e in focus_fx], float) * s.pixel_size_nm
+    widths_nm = focus_px[np.isfinite(focus_px)] * s.pixel_size_nm
     sig_all = np.concatenate([np.asarray(signal[no], float) for no in used]) if used else np.zeros(0)
     snr_all = sig_all / max(noise_img, 1e-9)
 

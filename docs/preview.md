@@ -40,7 +40,7 @@ E11K_150nM_2  [POOR]  20 frames, bin 2, ridge-fast, 9.5 s
 | metric | what it measures | good → poor |
 |---|---|---|
 | Filament signal-to-noise | median ridge signal / pixel noise | 12 → 4 |
-| Filament width (focus) | median ridge width, full-res centre crop | 300 → 380 nm |
+| Filament width (focus) | median cross-section FWHM measured from the image, full-res centre crop | 290 → 380 nm |
 | Illumination flatness | p5/p95 of the fitted gain field | 0.8 → 0.5 |
 | Saturated pixels | pixels at the camera's max value | 0.01 → 0.5 % |
 | Background / filament signal | median background / filament level | 6 → 15 |
@@ -53,8 +53,9 @@ E11K_150nM_2  [POOR]  20 frames, bin 2, ridge-fast, 9.5 s
 The overall verdict is the worst metric's status: GOOD (score ≥ 0.7), MARGINAL
 (≥ 0.35) or POOR. Anchors live in `QUALITY_SPECS` in
 `src/fastrack/pipelines/preview.py`; they were calibrated on the 38-movie Taka
-data set plus noise-aware blur/dim simulations (in focus ≈ 265–275 nm, a 3 px
-Gaussian defocus ≈ 370 nm; cutting the signal 8× drops SNR from ~12 to ~4).
+data set plus noise-aware blur/dim simulations (in focus 250–290 nm, a 1 px
+(80 nm) Gaussian defocus 320–370 nm, 2 px 430–600 nm; cutting the signal 8×
+drops SNR from ~12 to ~4).
 Treat them as starting points for your own setup.
 
 ## How it is fast
@@ -73,8 +74,23 @@ Defaults pick the fastest settings; all are flags:
 * no caches, no movies, a vectorized linker gate (also used by the full
   pipeline — results are bit-identical).
 
-Focus is judged separately on a full-resolution 512 px centre crop of the middle
-frame, because binning hides modest defocus.
+## Focus: width measured from the image
+
+Focus is judged on a full-resolution 512 px centre crop of the middle frame,
+because binning hides modest defocus. The detector only *locates* the
+filaments; the width is measured from the raw pixels
+(`analysis/profile_width.py`): for each of the 40 longest filaments,
+intensity profiles are sampled perpendicular to the centerline, re-centred to
+sub-pixel precision, combined into a median profile and fitted with a Gaussian
+on a sloped background; the metric is the median FWHM. Profiles that cross
+another filament are dropped, and the fit window widens to 3.5σ for blurred
+filaments (a narrow window under-reads blur).
+
+Why not the detector's own width: it depends on the detector implementation
+(`ridge` reports ~60 nm wider than `ridge-fast` on the same data). The profile
+FWHM agrees between the two within ~10–20 nm, is exact (±1 %) on synthetic
+Gaussian lines at any angle and sub-pixel offset, and is unbiased by a
+neighbour 7 px away. It runs while the workers detect the other frames.
 
 ## Two differences from the full pipeline
 
