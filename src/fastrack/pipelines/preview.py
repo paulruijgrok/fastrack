@@ -113,33 +113,21 @@ def _detector_name(name):
     return name
 
 
-def _contour_signal(img_f, contour):
-    """Median of the (1-px smoothed) image along an integer [row, col] contour."""
-    r = np.clip(contour[:, 0], 0, img_f.shape[0] - 1)
-    c = np.clip(contour[:, 1], 0, img_f.shape[1] - 1)
-    return float(np.median(img_f[r, c]))
+# Per-frame detection runs in pool workers; it lives in an import-light module
+# so spawned workers (macOS / Windows) don't import the whole gliding pipeline.
+from ..core.detection.worker import detect_filxys as _detect  # noqa: E402
+from ..core.detection.worker import warm_up as _warm_up  # noqa: E402
 
 
-def _detect(task):
-    """Worker: detect one frame; return filXYs + per-ridge signal (img units)."""
-    from ..core.detection import DETECTORS
-    from ..core.frame import Frame
-    img, no, noise, algo, params = task
-    fr = Frame()
-    fr.img = img
-    fr.width, fr.height = img.shape
-    fr.noise_sd = noise
-    fr.frame_no = no
-    DETECTORS.create(algo, **params).detect(fr)
-    sm = gaussian_filter(img.astype(np.float32), 1.0)
-    sig = [_contour_signal(sm, np.asarray(e[0])) for e in fr.filXYs]
-    return no, fr.filXYs, sig
-
-
-def _pool(nprocs):
+def _pool(nprocs, detector="ridge-fast"):
+    """Process pool for detection, or None for single-process.  Workers import
+    the detector backend in an initializer, i.e. while the main process is
+    still reading and preprocessing the first movie."""
     from multiprocessing import Pool, cpu_count
     n = nprocs or cpu_count()
-    return Pool(processes=max(1, n)) if n > 1 else None
+    if n <= 1:
+        return None
+    return Pool(processes=n, initializer=_warm_up, initargs=(_detector_name(detector),))
 
 
 # --------------------------------------------------------------------------- #
@@ -576,7 +564,7 @@ def run(path, settings: PreviewSettings = None, out_dir=None, plot=True, quiet=F
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
     results = {}
-    pool = _pool(s.nprocs)
+    pool = _pool(s.nprocs, s.detector)
     try:
         for name, d in movies:
             try:
