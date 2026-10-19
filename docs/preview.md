@@ -66,7 +66,10 @@ Defaults pick the fastest settings; all are flags:
 * **2×2 binning** (`--bin`), with ridge widths / min length scaled to match;
 * the **`ridge-fast`** detector (falls back to `ridge`) with the SNR filter on
   (`min_snr 3`);
-* detection in a **process pool** (`-j`, default all cores);
+* detection in a **process pool** (`-j`; default: the performance cores on
+  Apple Silicon, all cores elsewhere). Workers import only the detector
+  (`core/detection/worker.py`), not the whole pipeline: on macOS workers are
+  started fresh each run, and the full import cost ~3 s per run;
 * no caches, no movies, a vectorized linker gate (also used by the full
   pipeline — results are bit-identical).
 
@@ -102,6 +105,12 @@ frames (bin 2, 20 frames, 2 cloud cores):
 * time per movie: median 5.7 s, max 14 s on **2 cores** (the densest movie,
   ~530 filaments per frame). Detection is ~60 % of the time and scales with
   cores.
+
+On an Apple Silicon Mac (8 performance + 4 efficiency cores), the densest
+movie (E11K_300nM_1) takes **3.8 s** with 8 workers in a native (arm64) conda
+environment, vs 5.5 s in an Intel/Rosetta (`x86_64`) one; 12 workers is
+slightly slower than 8. Check with `python -c "import platform;
+print(platform.machine())"` — use a native environment (Miniforge, arm64).
 
 Known limitation: **floppiness is inflated by crowding** (r ≈ 0.6 with
 density) — mislinks between neighbouring filaments look like wandering tracks.

@@ -524,7 +524,7 @@ def fast_preview_main(argv=None):
                         help="spatial binning before analysis; 1 = full resolution "
                              "(slower, slightly more accurate lengths) (Default: 2)")
     parser.add_argument("-j", type=int, default=None, dest="nprocs",
-                        help="worker processes for detection (Default: all cores)")
+                        help="worker processes for detection (Default: performance cores on Apple Silicon, else all cores)")
     parser.add_argument("-o", "--out", default=None,
                         help="output folder for JSON/PNG/CSV reports "
                              "(Default: outputs/preview/<name of PATH>)")

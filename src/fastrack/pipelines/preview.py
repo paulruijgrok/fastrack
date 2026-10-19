@@ -119,12 +119,30 @@ from ..core.detection.worker import detect_filxys as _detect  # noqa: E402
 from ..core.detection.worker import warm_up as _warm_up  # noqa: E402
 
 
+def default_workers():
+    """Worker count: the performance cores on Apple Silicon (the efficiency
+    cores finish their frames last and made 12 workers slower than 8 on an
+    8P+4E Mac), otherwise all cores."""
+    import sys
+    from multiprocessing import cpu_count
+    if sys.platform == "darwin":
+        import subprocess
+        try:
+            out = subprocess.run(["sysctl", "-n", "hw.perflevel0.physicalcpu"],
+                                 capture_output=True, text=True, timeout=2).stdout
+            if out.strip().isdigit() and int(out) > 0:
+                return int(out)
+        except Exception:
+            pass
+    return cpu_count()
+
+
 def _pool(nprocs, detector="ridge-fast"):
     """Process pool for detection, or None for single-process.  Workers import
     the detector backend in an initializer, i.e. while the main process is
     still reading and preprocessing the first movie."""
-    from multiprocessing import Pool, cpu_count
-    n = nprocs or cpu_count()
+    from multiprocessing import Pool
+    n = nprocs or default_workers()
     if n <= 1:
         return None
     return Pool(processes=n, initializer=_warm_up, initargs=(_detector_name(detector),))

@@ -75,6 +75,28 @@ robustness). E11K_150nM_2 (34 % floppy, 35 % stuck, bimodal velocity, many
 filaments both static and moving = pivoting) looks like a genuine
 poor-attachment case.
 
+## Mac timing (afternoon, same day)
+
+- First Mac runs used `fastrack-ridge` without `ridge-fast` → fell back to
+  `ridge`. Identical numbers to the cloud with `ridge` (deterministic across
+  machines), but **focus width is ~55–60 nm larger with `ridge` than
+  `ridge-fast`** (342 vs 284 nm on E11K_300nM_1) → false MARGINAL focus flags.
+  The "numerically identical" claim for ridge-fast holds for contours, not
+  widths. Thresholds are calibrated for `ridge-fast`.
+- Accidental `pip install -e .` in Anaconda **base** upgraded numpy 1.26 → 2.4
+  and scipy (breaks numba 0.57 there); fix given: reinstall numpy 1.26.4 /
+  scipy 1.11.1, uninstall opencv-python + fastrack from base.
+- `fastrack-ridge` runs **x86_64 under Rosetta** on an arm64 Mac (8P + 4E).
+  Worker scaling was poor (1/4/8 workers: 13.1/8.4/7.3 s): macOS spawns workers,
+  and each imported the whole gliding pipeline (~2.5–3 s).
+- Fix 1 (commit `564d0b3`): import-light worker `core/detection/worker.py` +
+  pool initializer → Rosetta 1/4/8/12: 12.2/6.6/5.5/5.7 s.
+- Fix 2: native env `fastrack-arm` (Miniforge, osx-arm64; activate via
+  `eval "$(~/miniforge3/bin/conda shell.bash hook)"` because the shell's conda
+  is Anaconda's) → 1/4/8/12: 12.0*/4.5/**3.8**/4.1 s (*first run, numba compile).
+- Default workers now = performance cores on Apple Silicon (`default_workers()`),
+  since the efficiency cores made 12 slower than 8.
+
 ## Commands
 
 ```bash
@@ -102,6 +124,12 @@ Commit `de8e483` on `preview-mode` (from main `7ee7fbb`). Suite: 162 passed,
 5 skipped.
 
 ## Open items / next steps
+
+- Make the focus metric detector-independent (measure the width from the image
+  profile across each ridge) — `ridge` vs `ridge-fast` widths differ by ~60 nm.
+- Consider moving day-to-day FASTrack use to the native `fastrack-arm` env
+  (run the test suite there first).
+- Optional `--watch` mode with a persistent pool for use while acquiring.
 
 - Time it on the Mac (more cores) and at the microscope; decide whether more
   speed is needed (options: fewer frames, bin 3, sending uint8 instead of
