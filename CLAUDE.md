@@ -18,13 +18,31 @@ tracking / output seams behind a registry + `Settings`.
 
 ## Environment
 
-- Main env: repo `.venv` (`source .venv/bin/activate`), or a conda env. Install
-  with `pip install -e '.[plus]'`; optional extras `[ridge]` / `[ridge-fast]` /
-  `[plus-register]` (optomerge) / `[batch]` / `[plus-laptrack]`.
-- The `ridge` detector needs numba/llvmlite; if they won't `pip`-build on macOS,
-  use a conda-forge env (`conda create -n fastrack-ridge -c conda-forge
-  python=3.11 numba llvmlite`, then `pip install -e '.[ridge]'`). Use **one**
-  environment at a time — don't stack `.venv` on top of a conda env.
+- **Recommended (Mac): `fastrack-arm`** — a native Apple Silicon (osx-arm64)
+  conda-forge env made with **Miniforge**. The shell's default `conda` is
+  Anaconda's (Intel/x86_64, runs under Rosetta and can't see Miniforge envs), so
+  activate it through Miniforge's conda:
+  ```bash
+  eval "$(~/miniforge3/bin/conda shell.bash hook)"
+  conda activate fastrack-arm
+  python -c "import platform; print(platform.machine())"   # arm64
+  ```
+  Created with `~/miniforge3/bin/conda create -n fastrack-arm -c conda-forge
+  python=3.11 numba llvmlite`, then `pip install -e '.[ridge,ridge-fast,batch,test]' tifffile`.
+  Full suite there: 172 passed, 2 skipped (golden masters included). Native is
+  markedly faster than Rosetta (fast-preview 3.8 s vs 5.5 s on the densest Taka
+  movie).
+- Older envs: `fastrack-ridge` (Anaconda, x86_64 under Rosetta — works, slower)
+  and the repo `.venv`. Use **one** environment at a time — don't stack `.venv`
+  on top of a conda env.
+- **Never `pip install` into Anaconda `base`** (check the prompt says the env you
+  mean): an accidental `pip install -e .` there upgraded numpy/scipy and broke
+  numba in base.
+- Install extras: `[plus]`, `[ridge]` / `[ridge-fast]` (ridge detectors; need
+  numba/llvmlite — use a conda-forge env on macOS), `[plus-register]`
+  (optomerge), `[batch]`, `[plus-laptrack]`, `[test]`.
+- Run the tests with `python -m pytest -q` (not bare `pytest`, which may pick up
+  another environment's pytest).
 
 ## Conventions
 
