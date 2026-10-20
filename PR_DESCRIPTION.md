@@ -7,7 +7,7 @@ while acquiring, to decide whether the imaging conditions are good enough for
 the full analysis. From 20 frames at 2x2 binning it reports **gliding velocity,
 the length distribution and the stuck fraction**, and **ranks image-quality
 problems worst first with advice** — focus, signal-to-noise, illumination
-flatness, background, saturation, filament density (too few / crowded), stuck
+flatness, background, saturation, filament density (too few / crowded), stuck,
 floppy and pinned filaments, bleaching, and displacement per frame (frame rate) —
 ending in a GOOD / MARGINAL / POOR verdict.
 
