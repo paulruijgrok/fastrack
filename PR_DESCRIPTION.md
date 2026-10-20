@@ -105,9 +105,9 @@ blur/dim simulations — starting points to tune per setup (`QUALITY_SPECS`).
   any angle and sub-pixel offset, wide blur, neighbour rejection) and
   `tests/test_track_shape.py` (gliding along a curved track stays on track and
   isn't pinned; a swivelling filament is pinned and floppy; jumps to another
-  filament are ignored; tip identity survives contour flips). Full suite: cloud
-  **174 passed, 5 skipped**; on the Mac (`fastrack-arm`, native arm64, before
-  the attachment metrics) 172 passed, 2 skipped, golden masters included.
+  filament are ignored; tip identity survives contour flips). Full suite on
+  the Mac (`fastrack-arm`, native arm64): **178 passed, 2 skipped**, golden
+  masters included (cloud: 174 passed, 5 skipped — no local golden data).
 - **38 Taka movies vs the full `ridge-fast` analysis:** velocity +0.4 % vs
   length-matched MVEL (IQR −2.8 … +2.9 %), mean length +0.8 % (r = 0.93),
   stuck r = 0.77 (systematically higher, by design). Verdicts: 28 GOOD,
