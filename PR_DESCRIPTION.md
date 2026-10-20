@@ -8,7 +8,7 @@ the full analysis. From 20 frames at 2x2 binning it reports **gliding velocity,
 the length distribution and the stuck fraction**, and **ranks image-quality
 problems worst first with advice** — focus, signal-to-noise, illumination
 flatness, background, saturation, filament density (too few / crowded), stuck
-and floppy filaments, bleaching, and displacement per frame (frame rate) —
+floppy and pinned filaments, bleaching, and displacement per frame (frame rate) —
 ending in a GOOD / MARGINAL / POOR verdict.
 
 **Speed:** 3.8 s on the densest Taka movie (~530 filaments/frame) on an Apple
@@ -56,6 +56,15 @@ filaments, length and velocity histograms, quality bars) and
   Gaussian on a sloped background → FWHM. Profiles crossing another filament are
   dropped; the window widens for blurred filaments. Computed while the workers
   detect the other frames.
+- **Attachment metrics** (`analysis/track_shape.py`). *Floppy*: % of moving
+  tracks that leave their own track sideways — for each step, the distance of
+  the new contour from the *curve* of the old one (gliding filaments follow
+  their track, ~0); steps where the new contour doesn't touch the old one
+  (mislinks) are ignored. *Pinned*: % of tracks with one tip anchored (radius
+  of gyration ≤ 120 nm) while the other sweeps. FAST's index-matched
+  orthogonal distance (`area_score`) was tried first but measures chords
+  across curved filaments and grows with speed. Flagged tracks are drawn on
+  the dashboard, with a strip of examples coloured by time.
 - **Import-light detection worker** (`core/detection/worker.py`) + pool
   initializer. On macOS, workers are spawned and re-import the module holding
   the task function; from `fastrack.pipelines` that pulled in the whole gliding
@@ -82,7 +91,8 @@ blur/dim simulations — starting points to tune per setup (`QUALITY_SPECS`).
 | Background / filament signal | 6 → 15 |
 | Filaments per 100 µm² | too few 1 → 0.3; crowded 8 → 14 |
 | Stuck filaments | 15 → 40 % |
-| Floppy tracks | 15 → 35 % |
+| Floppy tracks (leave their own track) | 10 → 30 % |
+| Pinned filaments (one end anchored) | 1 → 5 % |
 | Bleaching | 1 → 3 %/frame |
 | Displacement per frame / length | 0.6 → 1.0 |
 
@@ -92,13 +102,17 @@ blur/dim simulations — starting points to tune per setup (`QUALITY_SPECS`).
   synthetic movie with known answers — 323 nm/s, 3 stuck / 6 moving, 60 px
   filaments, which a median background would get wrong — `--latest` frame
   selection, CLI) and `tests/test_profile_width.py` (±3 % on synthetic lines at
-  any angle and sub-pixel offset, wide blur, neighbour rejection). Full suite on
-  the Mac (`fastrack-arm`, native arm64): **172 passed, 2 skipped**, golden
-  masters included.
+  any angle and sub-pixel offset, wide blur, neighbour rejection) and
+  `tests/test_track_shape.py` (gliding along a curved track stays on track and
+  isn't pinned; a swivelling filament is pinned and floppy; jumps to another
+  filament are ignored; tip identity survives contour flips). Full suite: cloud
+  **174 passed, 5 skipped**; on the Mac (`fastrack-arm`, native arm64, before
+  the attachment metrics) 172 passed, 2 skipped, golden masters included.
 - **38 Taka movies vs the full `ridge-fast` analysis:** velocity +0.4 % vs
   length-matched MVEL (IQR −2.8 … +2.9 %), mean length +0.8 % (r = 0.93),
-  stuck r = 0.77 (systematically higher, by design). Verdicts: 29 GOOD,
-  3 MARGINAL, 6 POOR.
+  stuck r = 0.77 (systematically higher, by design). Verdicts: 28 GOOD,
+  4 MARGINAL, 6 POOR. Floppy median 7.6 % (p90 18 %), independent of density
+  (r = −0.23); pinned 0 % in most movies, up to 3 %.
 - **Linker vectorization:** identical velocity / length / point counts on Taka
   before and after.
 - **Determinism across machines:** Mac and cloud give identical numbers for the
@@ -108,10 +122,9 @@ blur/dim simulations — starting points to tune per setup (`QUALITY_SPECS`).
 
 ## Known limitations / future work
 
-- **Floppiness is inflated by crowding** (r ≈ 0.6 with density): mislinks
-  between neighbouring filaments look like wandering tracks. Read it together
-  with the density metric. E11K_150nM_2 (34 % floppy, 35 % stuck, bimodal
-  velocity) looks like a genuine poor-attachment case.
+- **Attachment metrics at 2×2 binning:** a pixel is ~160 nm, so subtle pinning
+  (< 2 px sweep) is missed, and in the most crowded or dimmest fields a few
+  flagged floppy tracks are still tracking errors or jittery contours.
 - **Focus thresholds come from simulated blur**; confirm on a real
   through-focus series. Strong defocus (3 px) is under-read in crowded fields
   (still rated POOR).

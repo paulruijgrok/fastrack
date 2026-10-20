@@ -20,6 +20,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PNG and a summary CSV. Validated on the 38 Taka movies: median 5.7 s/movie on
   2 cores; velocity within +0.4 % of the length-matched full analysis. Docs:
   `docs/preview.md`.
+- **Preview attachment metrics** (`analysis/track_shape.py`): *floppy* = % of
+  moving tracks that leave their own track sideways (distance of the new
+  contour from the old contour's curve; steps that don't touch the old contour,
+  e.g. mislinks, are ignored), and *pinned* = % of tracks with one tip anchored
+  while the other sweeps. Replace the earlier net/total-path straightness, which
+  was inflated by crowding (r 0.59 with density → −0.23). Flagged tracks are
+  drawn on the dashboard with an example strip.
 
 - **Ridge signal-to-noise filter (`min_snr`).** `[ridge] min_snr` /
   `--ridge-min-snr` (default 0 = off) drops ridges whose median centerline

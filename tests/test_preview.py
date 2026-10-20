@@ -62,7 +62,7 @@ def test_score_is_linear_between_anchors_in_both_directions():
 
 def test_quality_ranking_worst_first_and_verdict():
     good = dict(snr=20, focus_width_nm=270, flatness=0.95, saturation_pct=0.0,
-                background_to_signal=3, density=3, stuck_pct=5, floppy_pct=5,
+                background_to_signal=3, density=3, stuck_pct=5, floppy_pct=5, pinned_pct=0,
                 bleach_pct_per_frame=0.2, step_over_length=0.4)
     rows = P.score_quality(good)
     assert P.verdict(rows) == "GOOD"
@@ -120,6 +120,8 @@ def test_preview_recovers_known_velocity_length_and_stuck(tmp_path):
     assert r["static_filaments"] == 3
     assert r["moving_per_frame"] == pytest.approx(6, abs=0.5)
     assert r["stuck_pct"] == pytest.approx(100 / 3, abs=5)
+    assert r["metrics"]["floppy_pct"] == 0.0          # straight gliding stays on track
+    assert r["metrics"]["pinned_pct"] == 0.0
     assert set(r["seconds"]) >= {"read", "preprocess", "detect", "link", "total"}
     safe = name.replace(os.sep, "__")
     for f in (safe + "_preview.json", safe + "_preview.png", "preview_summary.csv"):

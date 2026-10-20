@@ -120,6 +120,30 @@ poor-attachment case.
 - Mac false focus warnings with `ridge` are gone: E11K_300nM_1 290 / 262 nm,
   E11K_300nM_2 260 / 249, WT_300nM_1 255 / 275 (ridge / ridge-fast), all GOOD.
 
+## Attachment metrics: floppy (off-track) and pinned (evening)
+
+- Tried FAST's orthogonal distance first (`area_score` from `sim_score`, stored
+  on every link): exact on straight synthetic filaments (0 px), but on Taka it
+  is index-matched (point i vs point i), so on curved filaments sliding several
+  px per frame it measures chords across the bend and grows with speed
+  (0.7 → 2.5 binned px); lateral/total ≈ 0.4 for every movie — not usable.
+- Follow-the-leader distance instead: new contour points → nearest point on the
+  old contour's (resampled) curve, ignoring points beyond the old ends. Gliding:
+  median 14 nm per track. First version (median per track > 80 nm, then
+  > 240 nm) flagged mostly tracking jumps (gallery). Fix: a step only counts if
+  the new contour touches the old one (≤ 160 nm); lateral if ≥ 10 % of points
+  > 320 nm off; floppy if ≥ 30 % of valid steps lateral. → median 7.6 %, p90
+  18 %, r(density) −0.23 (old straightness metric 0.59), r(pinned) ≈ 0.5.
+- Pinned: tips followed along the track via `fil_direction`; pinned if one tip's
+  radius of gyration ≤ 120 nm and the other's ≥ max(320 nm, 20 % of length).
+  Gallery: WT_250nM_1 shows the textbook anchored-end arc sweep. 0 % in most
+  movies, ≤ 3 % (sparse, high-stuck movies).
+- Built in: `analysis/track_shape.py`, preview metrics `floppy_pct` (10 → 30 %)
+  and `pinned_pct` (1 → 5 %), report line, dashboard overlay (orange / magenta)
+  + example strip; `tests/test_track_shape.py` (6 tests). 38 movies: verdicts
+  28 GOOD / 4 MARGINAL / 6 POOR; ~0.2 s per movie; velocity etc. unchanged.
+  Exploration scripts: cloud `prev/floppy.py`, `allfloppy.py`, `gallery.py`.
+
 ## Commands
 
 ```bash
@@ -159,7 +183,8 @@ Commit `de8e483` on `preview-mode` (from main `7ee7fbb`). Suite: 162 passed,
   float images to the pool, persistent worker pool between runs, skipping the
   focus crop).
 - Tune `QUALITY_SPECS` on other setups / deliberately bad acquisitions.
-- Floppiness vs crowding: consider excluding tracks near other filaments.
+- Attachment metrics: tune on deliberately poor surfaces (low motor density,
+  no blocking) — pinning below 2 binned px is invisible at bin 2.
 - Consider the low-order background and direct stuck counting for the full
   pipeline (its stuck % under-counts for the same reason).
 - Push `preview-mode`, open a PR, merge after review.

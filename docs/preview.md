@@ -16,15 +16,17 @@ For each movie it prints a short report and writes (default
 `<movie>_preview.png` and a `preview_summary.csv` across movies:
 
 ```
-E11K_150nM_2  [POOR]  20 frames, bin 2, ridge-fast, 9.5 s
-  velocity   mean 733 nm/s, median 661, top-5% 1867   (545 tracked points; timing: metadata)
-  stuck      34.6 %  (116 static vs 219 moving filaments/frame)
-  length     median 1.26 um (p10 0.78, p90 2.46, mean 1.47)
+WT_250nM_1  [POOR]  20 frames, bin 2, ridge-fast, 5.7 s
+  velocity   mean 1307 nm/s, median 1346, top-5% 2166   (108 tracked points; timing: metadata)
+  stuck      23.9 %  (11 static vs 35 moving filaments/frame)
+  length     median 2.97 um (p10 1.03, p90 5.15, mean 3.00)
+  attachment floppy 48.1 % (13 of 27 tracks), pinned 3.0 % (1 of 33)
   quality (worst first):
-    POOR      Floppy / poorly attached tracks   34.04 %  -> check motor density / surface attachment
-    POOR      Stuck filaments                   34.62 %  -> check surface / motor quality, blocking, ATP
-    MARGINAL  Background / filament signal       9.52    -> reduce background (wash out free fluorophore, check TIRF angle)
-    GOOD      Filament signal-to-noise          13.39
+    POOR      Floppy tracks (leave their own track)       48.15 %  -> check motor density / surface attachment
+    POOR      Filaments per 100 um^2 (too few)             0.54    -> add more filaments / move to a denser area
+    MARGINAL  Pinned filaments (one end anchored)          3.03 %  -> check surface passivation / dead heads
+    MARGINAL  Stuck filaments                             23.89 %  -> check surface / motor quality, blocking, ATP
+    GOOD      Bleaching                                    1.15 %/frame
     ...
 ```
 
@@ -46,7 +48,8 @@ E11K_150nM_2  [POOR]  20 frames, bin 2, ridge-fast, 9.5 s
 | Background / filament signal | median background / filament level | 6 → 15 |
 | Filaments per 100 µm² (too few / crowded) | moving filaments per frame | 1 → 0.3 / 8 → 14 |
 | Stuck filaments | see above | 15 → 40 % |
-| Floppy / poorly attached tracks | tracks whose centre of mass wanders (net/total path < 0.5) | 15 → 35 % |
+| Floppy tracks | moving tracks that leave their own track sideways (see below) | 10 → 30 % |
+| Pinned filaments | tracks with one end anchored and the other sweeping (see below) | 1 → 5 % |
 | Bleaching | linear decline of filament signal | 1 → 3 %/frame |
 | Displacement per frame / length | median step / median length | 0.6 → 1.0 (raise the frame rate) |
 
@@ -128,9 +131,49 @@ environment, vs 5.5 s in an Intel/Rosetta (`x86_64`) one; 12 workers is
 slightly slower than 8. Check with `python -c "import platform;
 print(platform.machine())"` — use a native environment (Miniforge, arm64).
 
-Known limitation: **floppiness is inflated by crowding** (r ≈ 0.6 with
-density) — mislinks between neighbouring filaments look like wandering tracks.
-Read it with the density metric next to it.
+## Attachment: floppy and pinned filaments
+
+Both are computed from the tracked contours (`analysis/track_shape.py`); the
+dashboard draws the flagged tracks on the image (orange / magenta) and shows a
+strip of examples with the contours coloured by time.
+
+**Floppy — leaving the track.** A filament gliding on a well-attached motor
+lawn follows its own track: every part of the new contour lies on the curve of
+the previous one, except the leading end that has moved past it. For each step
+the distance of each new contour point to the *curve* of the old contour is
+measured (ignoring points beyond the old ends). Gliding filaments sit at ~0
+(median 14 nm on Taka — pixel rounding); a filament that bends, swings or flails
+moves part of itself sideways.
+
+* A step counts only if the new contour still **touches** the old one
+  (≤ 160 nm somewhere): a flailing filament keeps part of itself on its track,
+  a link to a *different* filament (a mislink in a crowded field) does not.
+* A step is **lateral** when ≥ 10 % of the contour (90th percentile of the
+  point distances) is > 320 nm off the old track (2 binned pixels; pixel
+  rounding alone gives up to ~1 px).
+* A moving track (≥ 5 links, ≥ 3 valid steps) is **floppy** when ≥ 30 % of its
+  valid steps are lateral. The metric is the % of such tracks.
+
+Why not FAST's own orthogonal distance (`area_score` in `Filament.sim_score`):
+it compares contour point *i* in one frame with point *i* in the next, so on
+curved filaments that slide several pixels per frame it measures chords across
+the bend — it grows with speed (≈ 0.7 → 2.5 binned px on Taka) even for
+perfect gliding.
+
+**Pinned — one end anchored, the other sweeping.** Both tips are followed along
+each track (≥ 5 links, stuck tracks included), tip identity kept consistent via
+each link's `fil_direction`. A track is pinned when one tip stays put (radius of
+gyration ≤ 120 nm) while the other sweeps (radius of gyration ≥ max(320 nm,
+20 % of the filament length)).
+
+On the 38 Taka movies: floppy median 7.6 % (p90 18 %, max 48 % for
+WT_250nM_1); pinned 0 % in most movies, up to 3 % in the sparse, high-stuck
+ones. Floppy no longer depends on crowding (r = −0.23 with density; the earlier
+net/total-path straightness had r = 0.59 because mislinks looked like wandering
+tracks) and correlates with the pinned fraction (r ≈ 0.5). Limitations: at
+2×2 binning a pixel is ~160 nm, so subtle pinning (< 2 px sweep) is missed, and
+in the most crowded or dimmest fields a few flagged tracks are still tracking
+errors or jittery contours. Both cost ~0.2 s per movie.
 
 ## Python API
 

@@ -193,8 +193,10 @@ QUALITY_SPECS = {
                      "dilute filaments (crowding breaks tracking)"),
     "stuck_pct": ("Stuck filaments", "%", 15.0, 40.0,
                   "check surface / motor quality, blocking, ATP (many filaments stuck)"),
-    "floppy_pct": ("Floppy / poorly attached tracks", "%", 15.0, 35.0,
-                   "check motor density / surface attachment (filaments flail)"),
+    "floppy_pct": ("Floppy tracks (leave their own track)", "%", 10.0, 30.0,
+                   "check motor density / surface attachment (filaments bend / flail sideways)"),
+    "pinned_pct": ("Pinned filaments (one end anchored)", "%", 1.0, 5.0,
+                   "check surface passivation / dead heads (filaments pinned at one end)"),
     "bleach_pct_per_frame": ("Bleaching", "%/frame", 1.0, 3.0,
                              "reduce laser power / exposure or add oxygen scavenger"),
     "step_over_length": ("Displacement per frame / filament length", "", 0.6, 1.0,
@@ -398,28 +400,17 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
     n_static = len(static)
     area_100um2 = (frames_raw[0].size * dx * dx * 1e-6) / 100.0
 
-    # floppiness: moving paths that wander instead of gliding (net / total
-    # centre-of-mass travel).  The cm, not the contour midpoint: the midpoint
-    # is one quantised contour pixel that jumps when the contour's length or
-    # ordering changes, which made slow and crowded movies look floppy.
-    straight = []
+    # attachment: floppy (tracks leaving their own track sideways) and pinned
+    # (one end anchored, the other sweeping) -- see analysis/track_shape.py
+    from ..analysis.track_shape import attachment_metrics
+    att = attachment_metrics(m.paths, dx)
     vel_cv = []
     for p in m.paths:
         if getattr(p, "stuck", False) or len(p.links) < s.num_frames_ave:
             continue
-        pts = [np.asarray(p.links[-1].filament1_cm, float)]
-        for lk in p.links[::-1]:
-            pts.append(np.asarray(lk.filament2_cm, float))
-        pts = np.array(pts)
-        steps = np.sqrt((np.diff(pts, axis=0) ** 2).sum(1))
-        tot = steps.sum()
-        if tot > 0:
-            straight.append(np.sqrt(((pts[-1] - pts[0]) ** 2).sum()) / tot)
         iv = np.abs([lk.instant_velocity for lk in p.links])
         if iv.mean() > 0:
             vel_cv.append(iv.std() / iv.mean())
-    straight = np.array(straight)
-    floppy_pct = 100.0 * float(np.mean(straight < 0.5)) if len(straight) else None
 
     # bleaching: per-frame median ridge signal, linear trend relative to start
     per_frame = np.array([np.median(signal[no]) if len(signal[no]) else np.nan for no in used])
@@ -448,7 +439,8 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
         background_to_signal=float(np.median(model.background) / model.hi),
         density=n_moving / area_100um2,
         stuck_pct=100.0 * n_static / (n_static + n_moving) if (n_static + n_moving) else None,
-        floppy_pct=floppy_pct,
+        floppy_pct=att["floppy_pct"],
+        pinned_pct=att["pinned_pct"],
         bleach_pct_per_frame=bleach,
         step_over_length=(float(np.median(step_nm)) / med_len_nm
                           if step_nm and np.isfinite(med_len_nm) and med_len_nm > 0 else None),
@@ -475,6 +467,8 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
         ),
         metrics=metrics, quality=ranking, verdict=verdict(ranking),
         velocity_cv_median=float(np.median(vel_cv)) if vel_cv else None,
+        attachment=dict(floppy_tracks=len(att["floppy_paths"]), pinned_tracks=len(att["pinned_paths"]),
+                        tracks_for_floppy=att["n_floppy_tracks"], tracks_for_pinned=att["n_pinned_tracks"]),
     )
     T["stats"] = time.perf_counter() - t
     T["total"] = time.perf_counter() - t0
@@ -483,8 +477,28 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
         result["_plot"] = dict(img=model.apply(frames_raw[len(frames_raw) // 2]),
                                moving=filxys[used[len(used) // 2]], static=static,
                                lengths_um=det_len_um, static_lengths_um=static_len_um,
-                               velocities=moving_v)
+                               velocities=moving_v,
+                               **_attachment_tracks(att))
     return result
+
+
+def _attachment_tracks(att):
+    """Contour sequences of the floppy / pinned tracks; a track in both lists
+    is the same object, so the dashboard shows it once."""
+    cache = {}
+
+    def get(p):
+        if id(p) not in cache:
+            cache[id(p)] = _track_contours(p)
+        return cache[id(p)]
+    return dict(floppy=[get(p) for p in att["floppy_paths"]],
+                pinned=[get(p) for p in att["pinned_paths"]])
+
+
+def _track_contours(path):
+    """Contours of a track, earliest frame first (for the dashboard)."""
+    links = path.links[::-1]
+    return [np.asarray(links[0].filament1_contour)] + [np.asarray(lk.filament2_contour) for lk in links]
 
 
 # --------------------------------------------------------------------------- #
@@ -506,6 +520,10 @@ def format_report(name, r):
         % (_fmt(r["stuck_pct"], 1), r["static_filaments"], r["moving_per_frame"]),
         "  length     median %s um (p10 %s, p90 %s, mean %s)"
         % (_fmt(L["median"], 2), _fmt(L["p10"], 2), _fmt(L["p90"], 2), _fmt(L["mean"], 2)),
+        "  attachment floppy %s %% (%d of %d tracks), pinned %s %% (%d of %d)"
+        % (_fmt(r["metrics"].get("floppy_pct"), 1), r["attachment"]["floppy_tracks"],
+           r["attachment"]["tracks_for_floppy"], _fmt(r["metrics"].get("pinned_pct"), 1),
+           r["attachment"]["pinned_tracks"], r["attachment"]["tracks_for_pinned"]),
         "  quality (worst first):",
     ]
     for q in r["quality"]:
@@ -523,12 +541,46 @@ def plot_dashboard(name, r, path):
         _plot_dashboard(plt, name, r, path)
 
 
+def _track_strip(fig, cell, img, P, r, n=7):
+    """Bottom row: example pinned / floppy tracks, contours coloured by time."""
+    import matplotlib.pyplot as plt
+    pinned = P.get("pinned", [])
+    seen = {id(t) for t in pinned}
+    ex = [("pinned", t) for t in pinned] + [("floppy", t) for t in P.get("floppy", []) if id(t) not in seen]
+    sub = cell.subgridspec(1, n)
+    a = r["attachment"]
+    head = ("pinned %d of %d tracks (%s %%), floppy %d of %d (%s %%) -- examples, contours "
+            "purple -> yellow over time" % (a["pinned_tracks"], a["tracks_for_pinned"],
+                                            _fmt(r["metrics"].get("pinned_pct"), 1),
+                                            a["floppy_tracks"], a["tracks_for_floppy"],
+                                            _fmt(r["metrics"].get("floppy_pct"), 1)))
+    if not ex:
+        ax = fig.add_subplot(sub[0, :])
+        ax.axis("off")
+        ax.text(0.5, 0.5, head.split(" -- ")[0] + " -- no examples", ha="center", va="center")
+        return
+    for i, (kind, track) in enumerate(ex[:n]):
+        ax = fig.add_subplot(sub[0, i])
+        allc = np.vstack(track)
+        r0, c0 = np.maximum(allc.min(0).astype(int) - 6, 0)
+        r1, c1 = np.minimum(allc.max(0).astype(int) + 7, img.shape)
+        crop = img[r0:r1, c0:c1]
+        ax.imshow(crop, cmap="gray", vmin=0, vmax=max(np.percentile(img, 99.8), 1))
+        cols = plt.cm.viridis(np.linspace(0, 1, len(track)))
+        for c, col in zip(track, cols):
+            ax.plot(c[:, 1] - c0, c[:, 0] - r0, "-", color=col, lw=1.0)
+        ax.set_title(kind, fontsize=9, color="magenta" if kind == "pinned" else "darkorange")
+        ax.axis("off")
+        if i == 0:
+            ax.text(0, 1.25, head, transform=ax.transAxes, fontsize=9)
+
+
 def _plot_dashboard(plt, name, r, path):
     # rcParamsDefault: other FASTrack plotting modules set large global fonts.
     P = r["_plot"]
-    fig = plt.figure(figsize=(16, 8))
-    gs = fig.add_gridspec(2, 3, width_ratios=[1.7, 1, 1])
-    ax = fig.add_subplot(gs[:, 0])
+    fig = plt.figure(figsize=(16, 11))
+    gs = fig.add_gridspec(3, 3, width_ratios=[1.7, 1, 1], height_ratios=[1, 1, 0.75])
+    ax = fig.add_subplot(gs[:2, 0])
     img = P["img"]
     ax.imshow(img, cmap="gray", vmin=0, vmax=np.percentile(img, 99.8))
     for e in P["moving"]:
@@ -537,8 +589,14 @@ def _plot_dashboard(plt, name, r, path):
     for e in P["static"]:
         c = np.asarray(e[0])
         ax.plot(c[:, 1], c[:, 0], "-", color="red", lw=1.0)
-    ax.set_title("%s  [%s]\nmoving (green) / stuck (red)" % (name, r["verdict"]), fontsize=10)
+    for key, col in (("floppy", "orange"), ("pinned", "magenta")):
+        for track in P.get(key, []):
+            for c in track:
+                ax.plot(c[:, 1], c[:, 0], "-", color=col, lw=0.6, alpha=0.7)
+    ax.set_title("%s  [%s]\nmoving (green), stuck (red), floppy tracks (orange), pinned (magenta)"
+                 % (name, r["verdict"]), fontsize=10)
     ax.axis("off")
+    _track_strip(fig, gs[2, :], img, P, r)
     ax = fig.add_subplot(gs[0, 1])
     bins = np.linspace(0, max(6.0, np.percentile(P["lengths_um"], 99) if len(P["lengths_um"]) else 6), 30)
     ax.hist(P["lengths_um"], bins=bins, color="tab:green", alpha=0.7, label="moving")
