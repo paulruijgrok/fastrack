@@ -38,6 +38,18 @@ details (and the pip/venv alternative), and
 [FASTplus](#fastplus--directional-polarity-aware-analysis-optional) for the
 two-colour, polarity-aware mode.
 
+### Quick look at the microscope: `fast-preview`
+
+```bash
+fast-preview /path/to/movie            # ~5-10 s: velocity, lengths, stuck %, image-quality ranking
+fast-preview /path/to/movie --latest   # newest frames of a movie still being acquired
+```
+
+Analyses 20 frames at 2x2 binning and ranks image-quality problems (focus,
+signal-to-noise, illumination flatness, background, saturation, density, stuck /
+floppy and pinned filaments, bleaching, frame rate) worst first, with advice. See
+[docs/preview.md](docs/preview.md).
+
 ## Package structure
 
 The code uses a `src/` layout and is organized into logical sub-packages, each
@@ -59,7 +71,7 @@ src/fastrack/
 ├── io/                  # images, stores (npy/npz), export (csv), movie (ffmpeg)
 ├── viz/                 # plotparams + the length-velocity / 2D-path plots
 ├── pipelines/           # gliding (the `fast` driver), loaded (LIMA), batch
-└── cli/                 # console entry points: fast, lima, stack2tifs, fast-batch
+└── cli/                 # console entry points: fast, lima, stack2tifs, fast-batch, fast-preview
 ```
 
 Three things are pluggable via a registry + a `Settings` field, so new variants

@@ -8,6 +8,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Preview mode (`fast-preview`).** A few-seconds first look at a movie, for use
+  at the microscope: gliding velocity, length distribution, stuck fraction, and
+  image-quality metrics (SNR, focus, illumination flatness, saturation,
+  background, density, stuck, floppiness, bleaching, displacement/length) scored
+  and ranked worst first with advice, plus a GOOD / MARGINAL / POOR verdict.
+  Fast defaults: 20 frames (`--latest` for the newest ones), 2x2 binning,
+  `ridge-fast`, process pool, no caches. Uses a low-order (2nd-smallest)
+  background so slow filaments aren't cut short by a short-window median, and
+  counts stuck filaments on that background directly. Writes JSON, a dashboard
+  PNG and a summary CSV. Validated on the 38 Taka movies: median 5.7 s/movie on
+  2 cores; velocity within +0.4 % of the length-matched full analysis. Docs:
+  `docs/preview.md`.
+- **Preview attachment metrics** (`analysis/track_shape.py`): *floppy* = % of
+  moving tracks that leave their own track sideways (distance of the new
+  contour from the old contour's curve; steps that don't touch the old contour,
+  e.g. mislinks, are ignored), and *pinned* = % of tracks with one tip anchored
+  while the other sweeps. Replace the earlier net/total-path straightness, which
+  was inflated by crowding (r 0.59 with density → −0.23). Flagged tracks are
+  drawn on the dashboard with an example strip.
+
 - **Ridge signal-to-noise filter (`min_snr`).** `[ridge] min_snr` /
   `--ridge-min-snr` (default 0 = off) drops ridges whose median centerline
   intensity (robust to cosmic-ray spikes) is below `min_snr` x the frame's pixel noise. With `--preprocess`
@@ -21,6 +41,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/preprocessing.md` ("Detection on corrected data").
 
 ### Changed
+
+- Linking speed-up (also for the full pipeline): the candidate gates in
+  `GreedyLinker.link` and `Motility.wire_frame_links` are evaluated with arrays
+  instead of per-filament Python comprehensions. Same arithmetic, same candidate
+  order, bit-identical results; linking on a dense 20-frame movie 14.4 s -> 2.1 s.
 
 - The `fast` filament cache tag for non-entropy detectors now includes a hash of
   the detector parameters (`_ridge_d<hash>...`), so re-running with different

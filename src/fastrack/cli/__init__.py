@@ -492,3 +492,82 @@ def fastplus_main(argv=None):
 
     from ..pipelines import directional
     directional.run(main_dir=args.d, **settings.to_directional_kwargs(), **run_only)
+
+
+# --------------------------------------------------------------------------- #
+# fast-preview (quick look / image-quality check, e.g. at the microscope)
+# --------------------------------------------------------------------------- #
+def fast_preview_main(argv=None):
+    import os
+    # Micro-Manager TIFFs carry private tags that make OpenCV warn per frame.
+    os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
+    usage = "\n".join([
+        "%(prog)s PATH [options]",
+        "-" * 72,
+        "fast-preview: a few-seconds first look at gliding-assay movies.",
+        "",
+        "PATH is a movie folder, a TIFF stack, or a folder of movies. For each",
+        "movie it estimates stuck fraction, length distribution and gliding",
+        "velocity from a short stretch of frames, and ranks image-quality",
+        "metrics (signal-to-noise, focus, illumination, background, density,",
+        "floppiness, bleaching, frame rate) with suggested adjustments.",
+        "-" * 72,
+    ])
+    parser = argparse.ArgumentParser(description="", usage=usage)
+    parser.add_argument("path", help="movie folder, TIFF stack, or folder of movies")
+    parser.add_argument("-n", "--frames", type=int, default=20,
+                        help="number of consecutive frames to analyse (Default: 20)")
+    parser.add_argument("--latest", action="store_true",
+                        help="use the most recent frames instead of the first ones "
+                             "(for a movie that is still being acquired)")
+    parser.add_argument("--bin", type=int, default=2,
+                        help="spatial binning before analysis; 1 = full resolution "
+                             "(slower, slightly more accurate lengths) (Default: 2)")
+    parser.add_argument("-j", type=int, default=None, dest="nprocs",
+                        help="worker processes for detection (Default: performance cores on Apple Silicon, else all cores)")
+    parser.add_argument("-o", "--out", default=None,
+                        help="output folder for JSON/PNG/CSV reports "
+                             "(Default: outputs/preview/<name of PATH>)")
+    parser.add_argument("--no-plot", action="store_true",
+                        help="skip the PNG dashboard (saves ~0.5 s per movie)")
+    parser.add_argument("--no-save", action="store_true",
+                        help="print the report only; write no files")
+    parser.add_argument("--frame-rate", type=float, default=None,
+                        help="frame rate in Hz (needed for stacks without timestamps)")
+    parser.add_argument("--config", nargs="*", default=[], metavar="FILE.toml",
+                        help="TOML config: [hardware], [analysis] stuck velocity, "
+                             "[ridge] and [preprocess] values override the preview "
+                             "defaults")
+    args = parser.parse_args(argv)
+
+    from ..pipelines import preview
+    s = preview.PreviewSettings(n_frames=args.frames, latest=args.latest, bin=args.bin,
+                                nprocs=args.nprocs, frame_rate_hz=args.frame_rate)
+    if args.config:
+        import tomllib
+        from ..config import Settings
+        cfg = Settings.from_toml(*args.config)
+        raw = {}
+        for fpath in args.config:
+            with open(fpath, "rb") as fh:
+                raw.update(tomllib.load(fh))
+        s.pixel_size_nm = cfg.hardware.pixel_size_nm
+        s.max_inter_frame_distance_nm = cfg.hardware.max_inter_frame_distance_nm
+        s.stuck_velocity_nm_s = cfg.analysis.stuck_velocity_nm_s
+        if cfg.hardware.frame_rate_hz and not args.frame_rate:
+            s.frame_rate_hz = cfg.hardware.frame_rate_hz
+        # only keys the file actually sets override the preview defaults
+        for k in ("line_widths", "low_contrast", "high_contrast", "min_len", "min_snr"):
+            if k in raw.get("ridge", {}):
+                s.ridge[k] = raw["ridge"][k]
+        for k in s.preprocess:
+            if k in raw.get("preprocess", {}):
+                s.preprocess[k] = raw["preprocess"][k]
+
+    out = None
+    if not args.no_save:
+        name = os.path.basename(os.path.abspath(args.path).rstrip(os.sep))
+        out = args.out or os.path.join("outputs", "preview", name)
+    preview.run(args.path, settings=s, out_dir=out, plot=not args.no_plot)
+    if out:
+        print("\nreports: %s" % out)
