@@ -51,6 +51,11 @@ tracking / output seams behind a registry + `Settings`.
   future work); sweep for dead code before committing; correctness → single-core →
   parallel; ship a fail-isolated batch mode for real pipelines.
 - Docs live in `docs/`; the README is a map that links out to `docs/<topic>.md`.
+- **Example library:** configs in `configs/` (TOML, `--config`), `fast-batch`
+  manifests in `datasets/` (CSV; paths relative to the manifest, so `../configs/`,
+  `../examples/`). Each folder has a README index — add new ones there.
+  `tests/test_example_library.py` loads them all. Movie data (`examples/`) is not
+  in git.
 
 ## Session journaling (standard operating procedure)
 

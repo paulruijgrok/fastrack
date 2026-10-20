@@ -421,15 +421,21 @@ files with `--config`; any explicit CLI flag overrides the file, and multiple
 files layer left-to-right (later wins):
 
 ```bash
-fast -d <dataset> --config config.example.toml            # all settings from file
+fast -d <dataset> --config configs/example.toml           # all settings from file
 fast -d <dataset> --config base.toml --overlay-fps 24     # file + CLI override
 ```
 
-A fully-commented `config.example.toml` at the repo root lists every section
+A fully-commented [`configs/example.toml`](configs/example.toml) lists every section
 (`[hardware]`, `[analysis]`, `[plotting]`, `[runtime]`, `[ridge]`, `[preprocess]`,
 `[overlay]`)
 and key. Only the keys you set are applied; the rest keep their defaults. TOML
 config requires Python 3.11+.
+
+**Example library.** [`configs/`](configs/README.md) holds the reference configs
+and per-experiment ones (e.g. `configs/taka.toml`), and
+[`datasets/`](datasets/README.md) the `fast-batch` manifests (e.g.
+`datasets/taka.csv`); each folder's README indexes what is there. The test suite
+loads every file in both, so they stay valid.
 
 The dominant per-frame cost is the two radius-15 local percentile filters in
 `entropy_clusters` (and `check_picture_quality`). scikit-image rank filters keep
@@ -524,7 +530,7 @@ beta_default,data/2024-05-01/beta,
 ```
 
 The base-directory column is required (aliases: `base_dir`, `directory`,
-`dataset`, …); `config` (a TOML, see `config.example.toml`) and `name` are
+`dataset`, …); `config` (a TOML, see `configs/example.toml`) and `name` are
 optional. Relative paths resolve against the manifest's location. Then:
 
 ```bash

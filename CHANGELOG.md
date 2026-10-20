@@ -42,6 +42,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Example library: `configs/` and `datasets/`.** Config files and
+  `fast-batch` manifests moved out of the repo root into two folders, each with
+  a README index: `config.example.toml` → `configs/example.toml`,
+  `config.plus.example.toml` → `configs/fastplus.example.toml`,
+  `config.perturb.example.toml` → `configs/perturb.example.toml`,
+  `config.taka.toml` → `configs/taka.toml`, `datasets.example.csv` →
+  `datasets/example.csv`, `datasets.taka.csv` → `datasets/taka.csv`,
+  `mylist.csv` → `datasets/unloaded.csv`. Manifest paths are relative to the
+  manifest, so they now read `../examples/...`, `../configs/...`. New
+  `tests/test_example_library.py` loads every config (as `--config` does, so
+  unknown keys fail), the perturbation template, and every manifest.
+
 - Linking speed-up (also for the full pipeline): the candidate gates in
   `GreedyLinker.link` and `Motility.wire_frame_links` are evaluated with arrays
   instead of per-filament Python comprehensions. Same arithmetic, same candidate

@@ -117,7 +117,7 @@ pip install -e .                      # base; [plus] enables optomerge registrat
 fastplus -d <DIR_OF_RGB_TIFFS> --mode head-centric --head-channel red \
     --head-quality 8 --spf 0.1356 --kinetic-model exp_rise_decay -v
 # config-driven:
-fastplus -d <DIR> --config config.plus.example.toml
+fastplus -d <DIR> --config configs/fastplus.example.toml
 ```
 
 ## Notes / limitations

@@ -142,10 +142,10 @@ fastplus -d <DIR_OF_RGB_TIFFS> \
   in nm/s (otherwise they come out per-frame).
 - `-v` prints progress, the resolved perturbation schedule, and worker count.
 
-Config-file equivalent (see [`config.plus.example.toml`](../config.plus.example.toml)):
+Config-file equivalent (see [`configs/fastplus.example.toml`](../configs/fastplus.example.toml)):
 
 ```bash
-fastplus -d <DIR> --config config.plus.example.toml
+fastplus -d <DIR> --config configs/fastplus.example.toml
 ```
 
 CLI flags override config-file values, which override built-in defaults.
@@ -182,7 +182,7 @@ The schedule is resolved **per movie**, with `--switch-source auto` (default)
 trying these in order:
 
 1. **Per-movie sidecar** `<movie>.perturb.toml` (also `.json` / `.yaml`) — the
-   clearest option. See [`config.perturb.example.toml`](../config.perturb.example.toml):
+   clearest option. See [`configs/perturb.example.toml`](../configs/perturb.example.toml):
 
    ```toml
    [perturbation]

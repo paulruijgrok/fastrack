@@ -3,8 +3,10 @@
 # (tuned 2026-10-16; see docs/preprocessing.md "Detection on corrected data").
 # The 2026-10-09 batch run used low/high_contrast 18/50, min_len 12, no min_snr,
 # which traced background noise on the dimmer movies (~2000 ridges/frame).
-#   fast -d '<slide dir>' -f --config config.taka.toml
-# Requires Python 3.11+ (tomllib) -> use the fastrack-ridge conda env.
+#   fast -d '<slide dir>' -f --config configs/taka.toml
+#   fast-batch datasets/taka.csv          (all four slides)
+# Requires Python 3.11+ (tomllib) and the ridge detectors -> on the Mac use the
+# native fastrack-arm env (see CLAUDE.md).
 
 [hardware]
 pixel_size_nm = 80.65        # TODO: confirm against Taka's objective/camera
