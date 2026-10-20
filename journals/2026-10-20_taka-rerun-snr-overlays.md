@@ -87,6 +87,28 @@
    MVEL-filtered differs by 0–30 nm/s. The averaging here is not necessarily
    the cloud table's, and the tracking changes from the pull also contribute.
 
+## Addendum: preview-mode batch on the same 38 movies
+
+- New `hpc/fast_preview_batch.sbatch`: `fast-preview` on several folders in one
+  job (preview is seconds per movie, so no array), then gathers everything into
+  one browsable place: `preview_summary_all.csv` (all movies, `folder` column)
+  and `dashboards/` (all dashboard PNGs, flat). Tested on slide_04 in a dev job
+  (4 movies, 1 min).
+- Run: job `48673221` on `normal`, **3 min 33 s** for all 38 movies (max 10 s per
+  movie on 8 cores), default preview settings (they equal the Taka config:
+  80.65 nm, ridge 60/120, `min_len 8`, `min_snr 3`; 20 frames, bin 2).
+  ```bash
+  R=$SCRATCH/fastrack_runs/taka_preview_2026-10-20; E="$SCRATCH/fastrack_data/taka/04302026 Motility Experiment"
+  PREVIEW_OUT=$R sbatch -o "$R/fast_preview_%j.log" hpc/fast_preview_batch.sbatch "$E"/slide_0{1,2,3,4}
+  ```
+- Verdicts: 28 GOOD, 4 MARGINAL, 6 POOR. POOR: slide_01 WT_500nM_1 and
+  slide_02 WT_250nM_1 (floppy), slide_02 E11K_150nM_1/2 (stuck; 34.6 % on _2,
+  matching the full run's 33 %), slide_03 test_2 (focus), test_3 (flatness).
+  MARGINAL: all on floppy % (slide_01 E11K_300nM_1, WT_300nM_2, WT_500nM_2;
+  slide_03 WT_500nM_FG20_4).
+- Left over: `$SCRATCH/fastrack_runs/preview_test_2026-10-20/` (slide_04 test
+  output; delete when convenient).
+
 ## Files / commits
 
 | item | what |
@@ -95,7 +117,9 @@
 | `f4969d5` | `hpc/fast_movies_sweep.sbatch`: combine `fast` gets `< /dev/null` |
 | `$SCRATCH/fastrack_runs/taka_movies_2026-10-20/` | run dir; `outputs/`, `controller.log`, `COMPLETE` |
 | `$SCRATCH/fastrack_runs/pytest_48664662.log` | 178 passed, 2 skipped |
-| jobs | pytest `48664662`; movies `48664687`; sweeps `48664688`, `48668513` |
+| `hpc/fast_preview_batch.sbatch` | preview batch job script (addendum) |
+| `$SCRATCH/fastrack_runs/taka_preview_2026-10-20/` | preview run: `preview_summary_all.csv`, `dashboards/`, `per_slide/` |
+| jobs | preview `48673221`; pytest `48664662`; movies `48664687`; sweeps `48664688`, `48668513` |
 
 ## Open items / next steps
 
