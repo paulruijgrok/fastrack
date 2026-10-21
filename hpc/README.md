@@ -60,8 +60,13 @@ sbatch --cpus-per-task=32 hpc/fast_single.sbatch <datadir>     # more cores
 
 ## Many datasets (job array)
 
-Make a manifest (see `../datasets.example.csv`) — one row per dataset, columns
-`base_dir`, optional `config`, optional `name`. Then size and submit the array:
+Make a manifest (see `../datasets/example.csv`) — one row per dataset, columns
+`base_dir`, optional `config`, optional `name`. Relative paths resolve against
+the manifest's own folder: the library manifests in `../datasets/` point at
+`../configs/` and `../examples/`, so either run them in place
+(`hpc/manifest_count.py ~/code/fastrack/datasets/taka.csv`, with an `examples`
+symlink at the repo root) or, for a run dir, copy the manifest *and* its config
+and edit the paths (or make them absolute). Then size and submit the array:
 
 ```bash
 N=$(python hpc/manifest_count.py datasets.csv)     # number of datasets
