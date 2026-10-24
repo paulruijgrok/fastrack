@@ -24,6 +24,11 @@ from ..analysis import (  # noqa: E402
     length_velocity,
 )
 
+# Semi-transparent white backing for value labels drawn over data (TOP5%,
+# MVEL, %STUCK, <FIL-LENGTH>) in the length-velocity plot, so they stay
+# readable over histogram bars and scatter points.
+_LABEL_BOX = dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2.0)
+
 
 def make_N_colors(cmap_name, N):
     try:
@@ -535,44 +540,40 @@ class MotilityPlots:
             axTolerance1.set_xscale("symlog")
 
             tol_ymin = min_tol_vel - 100
-            tol_ymax = max_tol_vel + 100
+            # extra headroom above the curves: the legend goes there
+            tol_ymax = max_tol_vel + 100 + 0.5 * (max_tol_vel - min_tol_vel + 200)
             tol_diff = max_tol_vel - min_tol_vel + 200
 
             axTolerance2.set_ylim([tol_ymin, tol_ymax])
-            axTolerance2.set_xlim([5, 200])
+            # start just below the first tolerance (5 %) so its marker isn't
+            # cut in half by the axis
+            axTolerance2.set_xlim([4, 200])
 
-            axTolerance2.plot(
-                [6, 9],
-                [tol_ymin + 0.25 * tol_diff, tol_ymin + 0.25 * tol_diff],
-                color="k",
-                linestyle="--",
-                linewidth=5,
-            )
-            axTolerance2.text(
-                10, tol_ymin + 0.20 * tol_diff, r"%s" % ("TOP5%"), fontsize=text_font_size, color="k"
-            )
-            axTolerance2.plot(
-                [6, 9],
-                [tol_ymin + 0.10 * tol_diff, tol_ymin + 0.1 * tol_diff],
-                color="k",
-                linestyle="-",
-                linewidth=5,
-            )
-            axTolerance2.text(
-                10,
-                tol_ymin + 0.05 * tol_diff,
-                r"%s" % ("Mean Velocity"),
-                fontsize=text_font_size,
-                color="k",
+            # a real legend in the headroom above the curves (the hand-drawn
+            # one sat at a fixed spot, on top of low curves)
+            from matplotlib.lines import Line2D
+            axTolerance2.legend(
+                handles=[Line2D([], [], color="k", linestyle="--", linewidth=5),
+                         Line2D([], [], color="k", linestyle="-", linewidth=5)],
+                labels=["TOP5%", "Mean Velocity"], loc="upper left", ncol=2,
+                fontsize=0.7 * text_font_size, handlelength=1.6, columnspacing=1.0,
+                handletextpad=0.4, borderaxespad=0.3,
+                frameon=True, framealpha=0.85, edgecolor="none",
             )
 
             axTolerance2.set_xticks(tolerance_data[:, 0])
             axTolerance2.set_xticklabels(["*"] + [int(x) for x in tolerance_data[1:, 0]])
             axTolerance1.set_xlabel("% Tolerance", fontsize=text_font_size, labelpad=20)
 
-            vel_ticks = axTolerance2.get_yticks()
-            axTolerance2.set_yticks(vel_ticks[1::2])
-            axTolerance2.set_yticklabels(vel_ticks[1::2] * 1e-3)
+            # ticks only over the range the curves span (not in the legend
+            # headroom, where a top tick collided with the x10^3 marker)
+            from matplotlib.ticker import MaxNLocator
+            vel_ticks = np.array([t for t in MaxNLocator(nbins=2, steps=[1, 2, 5, 10]).tick_values(min_tol_vel, max_tol_vel)
+                                  if tol_ymin <= t <= max_tol_vel + 100])
+            if len(vel_ticks) > 2:
+                vel_ticks = vel_ticks[::2]          # keep the labels apart
+            axTolerance2.set_yticks(vel_ticks)
+            axTolerance2.set_yticklabels(["%.1f" % (v * 1e-3) for v in vel_ticks])
 
             ylim = axTolerance2.get_ylim()
             tol_diff = ylim[1] - ylim[0]
@@ -581,6 +582,11 @@ class MotilityPlots:
             py.setp(axTolerance2.get_yticklabels(), fontsize=text_font_size, visible=True)
             py.setp(axTolerance2.get_xticklabels(), fontsize=text_font_size, visible=True)
             py.setp(axTolerance1.get_yticklabels(), fontsize=text_font_size, visible=False)
+            # the left axis of the twin pair is unused: no tick marks either,
+            # and no symlog minor ticks between the tolerance values
+            axTolerance1.tick_params(axis="y", left=False, which="both")
+            from matplotlib.ticker import NullLocator
+            axTolerance2.xaxis.set_minor_locator(NullLocator())
             py.setp(axTolerance1.get_xticklabels(), fontsize=text_font_size, visible=True)
 
             l_bin_counts, _, _ = axHistx1.hist(
@@ -675,6 +681,12 @@ class MotilityPlots:
 
             py.setp(axHisty1.get_xticklabels(), visible=False)
             py.setp(axHisty2.get_xticklabels(), visible=False)
+            # the histograms share the scatter's velocity axis and have no
+            # labels of their own: drop their tick marks, which poked into the
+            # neighbouring panels
+            for _ax in (axHisty1, axHisty2):
+                _ax.tick_params(left=False, bottom=False, which="both")
+            axHistx1.tick_params(left=False, which="both")      # count axis, unlabeled
             py.setp(axHisty2.get_yticklabels(), visible=False)
             py.setp(axHistx1.get_yticklabels(), visible=False)
 
@@ -687,33 +699,37 @@ class MotilityPlots:
             axHisty1.text(0.1 * max_prob_t, 1.1 * max_vel, "Filtered", fontsize=text_font_size)
             axHisty2.text(0.1 * max_prob_a, 1.1 * max_vel, "Unfiltered", fontsize=text_font_size)
 
+            # value key in the upper right: long filaments are rare, so this
+            # corner is usually empty (upper left sat on the short-filament cloud)
             axScatter.plot(
-                max_length * 1e-3 * np.array([1, 2]) / 15.0,
+                max_length * 1e-3 * np.array([9, 10]) / 15.0,
                 [2150 / 2400.0 * max_vel, 2150 / 2400.0 * max_vel],
                 "k--",
                 linewidth=5,
             )
             axScatter.text(
-                max_length * 1e-3 * 2.1 / 15.0,
+                max_length * 1e-3 * 10.1 / 15.0,
                 2100 / 2400.0 * max_vel,
                 r"%.f$^{TOP5\%%}$" % (top_5_velocity),
                 fontsize=text_font_size,
                 color="k",
+                bbox=_LABEL_BOX,
             )
 
             if fit_f != "none":
                 axScatter.plot(
-                    max_length * 1e-3 * np.array([6, 7]) / 15.0,
-                    [2150 / 2400.0 * max_vel, 2150 / 2400.0 * max_vel],
+                    max_length * 1e-3 * np.array([9, 10]) / 15.0,
+                    [1850 / 2400.0 * max_vel, 1850 / 2400.0 * max_vel],
                     "k-",
                     linewidth=10,
                 )
                 axScatter.text(
-                    max_length * 1e-3 * 7.1 / 15.0,
-                    2100 / 2400.0 * max_vel,
+                    max_length * 1e-3 * 10.1 / 15.0,
+                    1800 / 2400.0 * max_vel,
                     r"%.f$^{PLATEAU}$" % (max_vel_u),
                     fontsize=text_font_size,
                     color="k",
+                bbox=_LABEL_BOX,
                 )
 
             axHisty1.text(
@@ -722,6 +738,7 @@ class MotilityPlots:
                 r"%.f$^{MVEL_{%s}}$" % (MVEL_filtered, tolerance_string),
                 fontsize=text_font_size,
                 color="k",
+                bbox=_LABEL_BOX,
             )
             axHisty2.text(
                 0.1 * max_prob_a,
@@ -729,6 +746,7 @@ class MotilityPlots:
                 r"%.f$^{MVEL}$" % (MVEL),
                 fontsize=text_font_size,
                 color="k",
+                bbox=_LABEL_BOX,
             )
             axHisty2.text(
                 0.15 * max_prob_a,
@@ -736,6 +754,7 @@ class MotilityPlots:
                 r"%.f$^{\%%STUCK}$" % (percent_stuck),
                 fontsize=text_font_size,
                 color="k",
+                bbox=_LABEL_BOX,
             )
             axHistx1.text(
                 mean_len_filtered * 1e-3,
@@ -743,6 +762,7 @@ class MotilityPlots:
                 r"%.3f$^{<FIL-LENGTH>}$" % (mean_len_filtered * 1e-3),
                 fontsize=text_font_size,
                 color="k",
+                bbox=_LABEL_BOX,
             )
 
         # bbox_inches="tight": grow the saved image to include every label and
