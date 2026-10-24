@@ -495,7 +495,9 @@ class MotilityPlots:
             bottom_v1 = bottom + 0.27
 
             rect_scatter = [left, bottom_v1, width, height]
-            rect_tolerance = [left_h1 + 0.01, bottom + 0.02, 0.29, 0.24]
+            # same left/right edges as the two velocity histograms above it and
+            # the same bottom/height as the length histogram beside it
+            rect_tolerance = [left_h1, bottom + 0.02, 0.30, 0.25]
             rect_histy1 = [left_h1, bottom_v1, 0.15, height]
             rect_histy2 = [left_h2, bottom_v1, 0.15, height]
             rect_histx1 = [left, bottom + 0.02, width, 0.25]
@@ -743,9 +745,14 @@ class MotilityPlots:
                 color="k",
             )
 
-        py.savefig(self.directory + "/" + header + "length_velocity.png", dpi=dpi_plot, transparent=False)
+        # bbox_inches="tight": grow the saved image to include every label and
+        # annotation (axis labels and the x10^3 markers sit outside the axes and
+        # were cut off at the figure edge)
+        py.savefig(self.directory + "/" + header + "length_velocity.png", dpi=dpi_plot,
+                   transparent=False, bbox_inches="tight", pad_inches=0.3)
         if extra_fname is not None:
-            py.savefig(extra_fname, dpi=dpi_plot, transparent=False)
+            py.savefig(extra_fname, dpi=dpi_plot, transparent=False,
+                       bbox_inches="tight", pad_inches=0.3)
         py.close()
 
     def plot_correlation_profile(self, extra_fname=None):
