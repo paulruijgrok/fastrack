@@ -752,7 +752,7 @@ class MotilityPlots:
                 )
 
             axHisty1.text(
-                0.1 * max_prob_t,
+                0.03 * max_prob_t,
                 row1,
                 r"%.f$^{MVEL_{%s}}$" % (MVEL_filtered, tolerance_string),
                 fontsize=text_font_size,
@@ -760,7 +760,7 @@ class MotilityPlots:
                 bbox=_LABEL_BOX,
             )
             axHisty2.text(
-                0.1 * max_prob_a,
+                0.03 * max_prob_a,
                 row1,
                 r"%.f$^{MVEL}$" % (MVEL),
                 fontsize=text_font_size,
@@ -768,7 +768,7 @@ class MotilityPlots:
                 bbox=_LABEL_BOX,
             )
             axHisty2.text(
-                0.1 * max_prob_a,
+                0.03 * max_prob_a,
                 row2,
                 r"%.f$^{\%%STUCK}$" % (percent_stuck),
                 fontsize=text_font_size,
