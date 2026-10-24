@@ -52,9 +52,10 @@ class AnalysisSettings:
 
 @dataclass
 class PlottingSettings:
-    ymax: int = 1500
+    ymax: int = 0                     # plot velocity limit (nm/s); 0 = from the data
     xmax: int = 10000
     maxvel_color: str = "b"
+    label_position: str = "bottom"    # length-velocity value labels: "bottom" | "top"
 
 
 @dataclass
@@ -333,6 +334,7 @@ class Settings:
             "plot_ymax": pl.ymax,
             "plot_xmax": pl.xmax,
             "maxvel_color": pl.maxvel_color,
+            "label_position": pl.label_position,
             "force_analysis": rt.force_analysis,
             "recalculate": rt.recalculate,
             "make_movie": rt.make_movie,

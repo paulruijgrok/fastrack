@@ -119,7 +119,7 @@ def fast_main(argv=None):
     parser.add_argument("-n", default=S, type=int, help="number of consecutive frames for averaging (Default:5)")
     parser.add_argument("-pt", default=S, type=int, help="percent tolerance (Default:none)")
     parser.add_argument("-px", default=S, type=float, help="pixel size in nm (Default:80.65 nm)")
-    parser.add_argument("-ymax", default=S, type=int, help="maximum velocity for the plot in nm/s (Default:1500)")
+    parser.add_argument("-ymax", default=S, type=int, help="maximum velocity for the plot in nm/s; 0 = from the data (Default: 0)")
     parser.add_argument("-xmax", default=S, type=int, help="maximum length for the plot in nm (Default:10000)")
     parser.add_argument("-cl", default=S, type=str, help="color for maximum velocity points (Default:blue)")
     parser.add_argument("-fx", default=S, choices=["none", "exp", "uyeda"], type=str, help="function to be fitted to maximum velocity data")

@@ -131,9 +131,10 @@ def run(
     num_frames_ave=5,
     percent_tolerance=500,
     pixel_size=80.65,
-    plot_ymax=1500,
+    plot_ymax=0,
     plot_xmax=10000,
     maxvel_color="b",
+    label_position="bottom",
     fit_function="none",
     max_velocity=2016.25,
     min_velocity=80,
@@ -201,7 +202,7 @@ def run(
         dataset_name
         + "__pt_" + str(tolerance_prop)
         + "__n_" + str(num_frames_ave)
-        + "__ymax_" + str(int(plot_ymax))
+        + "__ymax_" + (str(int(plot_ymax)) if plot_ymax else "auto")
         + "__p_" + str(min_path_length)
         + "__fx_" + fit_function
         + det_dir_tag
@@ -563,6 +564,7 @@ def run(
                 min_points=10,
                 print_plot=True,
                 maxvel_color=maxvel_color,
+                label_position=label_position,
                 fit_f=fit_function,
             )
             (top_5_velocity, percent_stuck, MVEL, MVEL_filtered, max_vel_u, MVIS,
@@ -615,6 +617,7 @@ def run(
             min_points=10,
             print_plot=True,
             maxvel_color=maxvel_color,
+            label_position=label_position,
             fit_f=fit_function,
         )
         if stats[0] == -1:

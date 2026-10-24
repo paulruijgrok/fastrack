@@ -337,7 +337,7 @@ From the project root:
 fast -d examples/unloaded_motility/micromanager_tifs
 ```
 
-Results are written under `outputs/<dataset>__pt_none__n_5__ymax_1500__p_5__fx_none/`,
+Results are written under `outputs/<dataset>__pt_none__n_5__ymax_auto__p_5__fx_none/`,
 including per-movie `*_length_velocity.png` plots and combined
 `combined/MEAN_values.txt` / `combined/SEM_values.txt`.
 

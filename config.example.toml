@@ -30,9 +30,10 @@ fast_rank = true
 morph_contrast = false
 
 [plotting]
-ymax = 1500
+ymax = 0                              # plot velocity limit (nm/s); 0 = from the data
 xmax = 10000
 maxvel_color = "b"
+label_position = "bottom"             # length-velocity value labels: "bottom" or "top"
 
 [runtime]
 make_movie = false

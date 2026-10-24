@@ -30,6 +30,24 @@ from ..analysis import (  # noqa: E402
 _LABEL_BOX = dict(facecolor="white", alpha=0.75, edgecolor="none", pad=2.0)
 
 
+def auto_velocity_limit(velocities, top_5_velocity=0.0, step=250.0, margin=1.1):
+    """Velocity axis limit (nm/s) for the length-velocity figure, from the data.
+
+    The 99.5th percentile of the moving (velocity > 0) points, or the TOP5%
+    velocity if that is higher (so its marker line is always on the plot),
+    plus a 10 % margin, rounded up to a multiple of ``step``.  The fixed
+    default (1500 nm/s) cut off fast assays: Taka's filaments glide at up to
+    ~2.5 um/s, so their TOP5% line sat above the plot.
+    """
+    v = np.asarray(velocities, dtype=float)
+    v = v[np.isfinite(v) & (v > 0)]
+    top = max(float(np.percentile(v, 99.5)) if len(v) else 0.0,
+              float(top_5_velocity) if np.isfinite(top_5_velocity) else 0.0)
+    if top <= 0:
+        return 1500.0
+    return float(step * np.ceil(margin * top / step))
+
+
 def make_N_colors(cmap_name, N):
     try:
         cmap = matplotlib.colormaps[cmap_name].resampled(N)
@@ -160,7 +178,7 @@ class MotilityPlots:
         self,
         header="",
         extra_fname=None,
-        max_vel=2400,
+        max_vel=0,
         max_length=10000,
         nbins=30,
         min_points=2,
@@ -176,7 +194,7 @@ class MotilityPlots:
         plot_length_f=False,
         fit_f="exp",
         dpi_plot=200,
-        label_position="top",
+        label_position="bottom",
     ):
         """Compute velocity statistics and (optionally) render the length-velocity plot.
 
@@ -188,9 +206,13 @@ class MotilityPlots:
         (and which, because its length histogram mixed nm and um, never ran
         successfully).  The fit that matters is selected by ``fit_f``.
 
-        ``label_position`` ("top" or "bottom") places the value labels of the
-        three top panels (TOP5%, MVEL, %STUCK, ...) on shared rows near the top
-        or near the bottom of the panels.
+        ``label_position`` ("bottom", default, or "top") places the value labels
+        of the three top panels (TOP5%, MVEL, %STUCK, ...) on shared rows near
+        the bottom or near the top of the panels.
+
+        ``max_vel`` is the velocity axis limit (nm/s) of the figure; 0 or None
+        picks it from the data (see :func:`auto_velocity_limit`).  It only
+        affects the figure, not the returned statistics.
         """
         if label_position not in ("top", "bottom"):
             raise ValueError("label_position must be 'top' or 'bottom', got %r" % (label_position,))
@@ -290,6 +312,9 @@ class MotilityPlots:
         velocities_sorted = np.sort(fil_vel)[::-1]
         top_5_num = int(np.ceil(0.05 * len(velocities_sorted)))
         top_5_velocity = np.mean(velocities_sorted[:top_5_num])
+        if not max_vel or max_vel <= 0:
+            max_vel = auto_velocity_limit(self.full_len_vel[:, 1], top_5_velocity)
+            v_bin_edges = np.linspace(0, max_vel, nbins)
 
 
         max_valid = np.nonzero(
