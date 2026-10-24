@@ -19,8 +19,7 @@ from scipy import stats  # noqa: E402
 from . import plotparams  # noqa: E402
 from ..analysis import (  # noqa: E402
     coupling_velocity,
-    fit_coupling_velocity,
-    fit_length_velocity,
+    fit_plateau,
     length_velocity,
 )
 
@@ -195,6 +194,7 @@ class MotilityPlots:
         fit_f="exp",
         dpi_plot=200,
         label_position="bottom",
+        label_units=False,
     ):
         """Compute velocity statistics and (optionally) render the length-velocity plot.
 
@@ -317,30 +317,40 @@ class MotilityPlots:
             v_bin_edges = np.linspace(0, max_vel, nbins)
 
 
+        # One point per filament (its fastest window).  Same length cut as the
+        # scatter/histograms: a few merged clumps or crossings come out tens of
+        # um "long", and one 224 um point dragged the plateau fit to
+        # 215,000 nm/s (the original code has the same issue).
         max_valid = np.nonzero(
             (self.max_len_vel[:, 1] > 0)
             * (self.max_len_vel[:, 2] <= percent_tolerance / 100.0 * self.max_len_vel[:, 1])
             * (self.max_len_vel[:, 3] >= min_path_length)
+            * (self.max_len_vel[:, 0] < max_length)
         )[0]
 
         max_vel_u = -1
         max_vel_amp = 0
         max_vel_tau = 1
         max_vel_r = 0
-        if fit_f == "exp":
-            max_vel_u, max_vel_amp, max_vel_tau, residuals, success = fit_coupling_velocity(
-                self.max_len_vel[max_valid, 0],
-                self.max_len_vel[max_valid, 1],
-                np.ones(len(self.max_len_vel[max_valid, 0])),
-                weighted=False,
-            )
-        elif fit_f == "uyeda":
-            max_vel_u, max_vel_r, residuals, success = fit_length_velocity(
-                self.max_len_vel[max_valid, 0],
-                self.max_len_vel[max_valid, 1],
-                np.ones(len(self.max_len_vel[max_valid, 0])),
-                weighted=False,
-            )
+        # Plateau fit with a standard error (fit_plateau: data-based start,
+        # bounded parameters); result kept on self.fit_result for callers.
+        self.fit_result = None
+        max_vel_u_se = np.nan
+        if fit_f in ("exp", "uyeda"):
+            fr = fit_plateau(self.max_len_vel[max_valid, 0], self.max_len_vel[max_valid, 1], fit_f)
+            self.fit_result = fr
+            if fr["ok"]:
+                max_vel_u, max_vel_u_se = fr["plateau"], fr["plateau_se"]
+                if fit_f == "exp":
+                    _, max_vel_amp, max_vel_tau = fr["params"]
+                else:
+                    _, max_vel_r = fr["params"]
+
+        # Standard error of the mean filament length, over filaments (the
+        # windowed points along one track are not independent): sets how many
+        # decimals the <FIL-LENGTH> label shows.
+        n_fil = max(len(max_valid), 1)
+        mean_len_se = (float(np.std(fil_len)) / np.sqrt(n_fil)) if len(fil_len) > 1 else np.nan
 
         exp_len = np.linspace(np.min(fil_len), 15000, 1000)
         if fit_f == "exp":
@@ -390,6 +400,9 @@ class MotilityPlots:
                 max_vel_r=max_vel_r,
                 text_font_size=text_font_size,
                 label_position=label_position,
+                max_vel_u_se=max_vel_u_se,
+                mean_len_se=mean_len_se,
+                label_units=label_units,
             )
 
         if fit_f != "none":
@@ -424,7 +437,10 @@ class MotilityPlots:
         """Render the length-velocity figure.  Isolated so a plotting failure
         cannot corrupt the numeric statistics returned to the caller."""
         header = kw["header"]
-        label_position = kw.get("label_position", "top")
+        label_position = kw.get("label_position", "bottom")
+        max_vel_u_se = kw.get("max_vel_u_se", np.nan)
+        mean_len_se = kw.get("mean_len_se", np.nan)
+        label_units = kw.get("label_units", False)
         extra_fname = kw["extra_fname"]
         minimal_plot = kw["minimal_plot"]
         square_plot = kw["square_plot"]
@@ -576,7 +592,6 @@ class MotilityPlots:
             tol_ymin = min_tol_vel - 100
             # extra headroom above the curves: the legend goes there
             tol_ymax = max_tol_vel + 100 + 0.5 * (max_tol_vel - min_tol_vel + 200)
-            tol_diff = max_tol_vel - min_tol_vel + 200
 
             axTolerance2.set_ylim([tol_ymin, tol_ymax])
             # start just below the first tolerance (5 %) so its marker isn't
@@ -609,9 +624,8 @@ class MotilityPlots:
             axTolerance2.set_yticks(vel_ticks)
             axTolerance2.set_yticklabels(["%.1f" % (v * 1e-3) for v in vel_ticks])
 
-            ylim = axTolerance2.get_ylim()
-            tol_diff = ylim[1] - ylim[0]
-            axTolerance2.text(300, ylim[1] + 0.1 * tol_diff, r"$x10^3$", fontsize=25)
+            axTolerance2.annotate(r"$x10^3$", xy=(1, 1), xycoords="axes fraction", xytext=(6, 8),
+                                  textcoords="offset points", ha="left", va="bottom", fontsize=25)
 
             py.setp(axTolerance2.get_yticklabels(), fontsize=text_font_size, visible=True)
             py.setp(axTolerance2.get_xticklabels(), fontsize=text_font_size, visible=True)
@@ -629,6 +643,8 @@ class MotilityPlots:
                 density=False,
                 orientation="vertical",
                 color="gray",
+                edgecolor="k",
+                linewidth=0.6,
             )
             max_prob_l = np.max(l_bin_counts)
 
@@ -638,6 +654,8 @@ class MotilityPlots:
                 density=True,
                 orientation="horizontal",
                 color="gray",
+                edgecolor="k",
+                linewidth=0.6,
             )
             max_prob_a = axHisty2.get_xlim()[1]
 
@@ -647,6 +665,8 @@ class MotilityPlots:
                 density=True,
                 orientation="horizontal",
                 color="gray",
+                edgecolor="k",
+                linewidth=0.6,
             )
             max_prob_t = axHisty1.get_xlim()[1]
 
@@ -661,8 +681,8 @@ class MotilityPlots:
                 linestyle="None",
             )
 
-            if fit_f != "none":
-                axScatter.plot(1e-3 * exp_len, exp_vel, "k-", alpha=0.7)
+            if fit_f != "none" and max_vel_u > 0:
+                axScatter.plot(1e-3 * exp_len, exp_vel, "k-", linewidth=3, alpha=0.8)
 
             axScatter.plot(
                 1e-3 * exp_len, np.ones(len(exp_len)) * top_5_velocity, "k--", linewidth=5
@@ -680,23 +700,32 @@ class MotilityPlots:
             axScatter.set_ylim([0, max_vel])
             axScatter.set_xlim([0, max_length * 1e-3])
 
-            vel_ticks = axScatter.get_yticks()[::2]
+            from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator
+            # velocity: ~3 round major ticks over [0, max_vel], 4 sub-ticks between
+            vel_ticks = np.array([t for t in MaxNLocator(nbins=3, steps=[1, 2, 5, 10]).tick_values(0, max_vel)
+                                  if 0 <= t <= max_vel])
             axScatter.set_yticks(vel_ticks)
-            axScatter.set_yticklabels(vel_ticks * 1e-3)
+            axScatter.set_yticklabels(["%.1f" % (v * 1e-3) for v in vel_ticks])
+            axScatter.yaxis.set_minor_locator(AutoMinorLocator(5))
 
-            len_ticks = axScatter.get_xticks()
-            axScatter.set_xticks(len_ticks[:-1])
-            axScatter.set_xticklabels([int(x) for x in len_ticks[:-1]])
-
-            axHistx1.set_xticks(len_ticks[:-1])
-            axHistx1.set_xticklabels([int(x) for x in len_ticks[:-1]])
+            # length: majors every 2 um (the old code labelled 2.5 / 7.5 um ticks
+            # as "2" / "7" by truncating), 1 um sub-ticks; the right edge (shared
+            # with the tolerance panel) gets no label
+            xmax_um = max_length * 1e-3
+            len_ticks = np.arange(0, xmax_um - 1e-9, 2.0)
+            for _ax in (axScatter, axHistx1):
+                _ax.set_xticks(len_ticks)
+                _ax.set_xticklabels(["%d" % x for x in len_ticks])
+                _ax.xaxis.set_minor_locator(MultipleLocator(1.0))
 
             axHisty1.set_yticks(vel_ticks)
             axHisty1.set_yticklabels(vel_ticks * 1e-3)
             axHisty2.set_yticks(vel_ticks)
             axHisty2.set_yticklabels(vel_ticks * 1e-3)
 
-            axScatter.text(0, max_vel, r"$x10^3$", fontsize=25)
+            # axis multiplier, lifted a little off the axis line
+            axScatter.annotate(r"$x10^3$", xy=(0, 1), xycoords="axes fraction", xytext=(0, 8),
+                               textcoords="offset points", ha="left", va="bottom", fontsize=25)
 
             axScatter.set_ylim([0, max_vel])
             axScatter.set_xlim([0, max_length * 1e-3])
@@ -720,15 +749,20 @@ class MotilityPlots:
             # neighbouring panels
             for _ax in (axHisty1, axHisty2):
                 _ax.tick_params(left=False, bottom=False, which="both")
-            axHistx1.tick_params(left=False, which="both")      # count axis, unlabeled
             py.setp(axHisty2.get_yticklabels(), visible=False)
-            py.setp(axHistx1.get_yticklabels(), visible=False)
+            # length histogram: labelled count axis; headroom so its top tick
+            # label stays clear of the scatter's "0.0" just above
+            axHistx1.set_ylim(0, 1.15 * max_prob_l)
+            axHistx1.yaxis.set_major_locator(MaxNLocator(nbins=3, integer=True, prune="upper"))
+            py.setp(axHistx1.get_yticklabels(), fontsize=0.8 * text_font_size, visible=True)
+            axHistx1.set_ylabel("Number of events", labelpad=20, fontsize=0.8 * text_font_size)
 
             axTolerance2.set_ylabel(r"Velocity (nm/s)", labelpad=20, fontsize=text_font_size)
             axScatter.set_ylabel(r"Velocity (nm/s)", labelpad=20, fontsize=text_font_size)
             axHistx1.set_xlabel(
                 r"Actin filament length ($\mu m$)", labelpad=20, fontsize=text_font_size
             )
+            py.gcf().align_ylabels([axScatter, axHistx1])
 
             axHisty1.text(0.1 * max_prob_t, 1.1 * max_vel, "Filtered", fontsize=text_font_size)
             axHisty2.text(0.1 * max_prob_a, 1.1 * max_vel, "Unfiltered", fontsize=text_font_size)
@@ -738,23 +772,35 @@ class MotilityPlots:
             # row 2 = PLATEAU | %STUCK.  label_position puts the rows near the
             # top of the panels or near the bottom (slow, long filaments are
             # rare, so the bottom of the scatter and histograms is often empty).
+            gap = 0.16 if label_units else 0.13      # stacked units need more room
             if label_position == "bottom":
-                row1, row2 = 0.19 * max_vel, 0.06 * max_vel
+                row2 = 0.06 * max_vel
+                row1 = row2 + gap * max_vel
             else:
-                row1, row2 = 0.86 * max_vel, 0.73 * max_vel
+                row1 = 0.86 * max_vel
+                row2 = row1 - gap * max_vel
             key_dy = 0.02 * max_vel          # key line at mid-height of the digits
-            # value key on the right: long filaments are rare, so that side is
-            # usually empty (the left sat on the short-filament cloud)
+            # label_units: the unit goes *under* the name (subscript stacked
+            # with the superscript), so a label is no wider than without it
+            unit_v = r"_{\mathregular{nm/s}}" if label_units else ""
+            unit_l = r"_{\mu\mathregular{m}}" if label_units else ""
+            # mean length shown to the decimal of its standard error (1st
+            # significant digit), between 1 and 3 decimals
+            se_um = mean_len_se * 1e-3
+            len_decimals = (int(np.clip(-np.floor(np.log10(se_um)), 1, 3))
+                            if np.isfinite(se_um) and se_um > 0 else 3)
+            # value keys right of centre: long filaments are rare, so that part of
+            # the panel is usually empty (the left sits on the short-filament cloud)
             axScatter.plot(
-                max_length * 1e-3 * np.array([9, 10]) / 15.0,
+                max_length * 1e-3 * np.array([6, 7]) / 15.0,
                 [row1 + key_dy, row1 + key_dy],
                 "k--",
                 linewidth=5,
             )
             axScatter.text(
-                max_length * 1e-3 * 10.1 / 15.0,
+                max_length * 1e-3 * 7.1 / 15.0,
                 row1,
-                r"%.f$^{TOP5\%%}$" % (top_5_velocity),
+                r"%.f$^{TOP5\%%}%s$" % (top_5_velocity, unit_v),
                 fontsize=text_font_size,
                 color="k",
                 bbox=_LABEL_BOX,
@@ -762,15 +808,16 @@ class MotilityPlots:
 
             if fit_f != "none":
                 axScatter.plot(
-                    max_length * 1e-3 * np.array([9, 10]) / 15.0,
+                    max_length * 1e-3 * np.array([6, 7]) / 15.0,
                     [row2 + key_dy, row2 + key_dy],
                     "k-",
-                    linewidth=10,
+                    linewidth=3,
                 )
                 axScatter.text(
-                    max_length * 1e-3 * 10.1 / 15.0,
+                    max_length * 1e-3 * 7.1 / 15.0,
                     row2,
-                    r"%.f$^{PLATEAU}$" % (max_vel_u),
+                    (r"%.f$\pm$%.f$^{PLATEAU}%s$" % (max_vel_u, max_vel_u_se, unit_v)
+                     if np.isfinite(max_vel_u_se) else r"%.f$^{PLATEAU}%s$" % (max_vel_u, unit_v)),
                     fontsize=text_font_size,
                     color="k",
                 bbox=_LABEL_BOX,
@@ -779,7 +826,7 @@ class MotilityPlots:
             axHisty1.text(
                 0.03 * max_prob_t,
                 row1,
-                r"%.f$^{MVEL_{%s}}$" % (MVEL_filtered, tolerance_string),
+                r"%.f$^{MVEL_{%s}}%s$" % (MVEL_filtered, tolerance_string, unit_v),
                 fontsize=text_font_size,
                 color="k",
                 bbox=_LABEL_BOX,
@@ -787,7 +834,7 @@ class MotilityPlots:
             axHisty2.text(
                 0.03 * max_prob_a,
                 row1,
-                r"%.f$^{MVEL}$" % (MVEL),
+                r"%.f$^{MVEL}%s$" % (MVEL, unit_v),
                 fontsize=text_font_size,
                 color="k",
                 bbox=_LABEL_BOX,
@@ -803,7 +850,7 @@ class MotilityPlots:
             axHistx1.text(
                 mean_len_filtered * 1e-3,
                 max_prob_l * 0.5,
-                r"%.3f$^{<FIL-LENGTH>}$" % (mean_len_filtered * 1e-3),
+                r"%.*f$^{<FIL-LENGTH>}%s$" % (len_decimals, mean_len_filtered * 1e-3, unit_l),
                 fontsize=text_font_size,
                 color="k",
                 bbox=_LABEL_BOX,

@@ -73,3 +73,61 @@ def test_velocity_limit_does_not_change_the_statistics(tmp_path):
     sb = b.plot_length_velocity(max_vel=1500, min_points=10, percent_tolerance=500,
                                 fit_f="none", print_plot=False)
     assert sa == sb
+
+
+# --------------------------------------------------------------------------- #
+# plateau fit
+# --------------------------------------------------------------------------- #
+def _lv_data(n=600, U=1900.0, A=2500.0, tau=650.0, seed=1):
+    rng = np.random.default_rng(seed)
+    L = rng.uniform(700, 3500, n)
+    V = U - A * np.exp(-L / tau) + rng.normal(0, 120, n)
+    return L, V
+
+
+def test_fit_plateau_recovers_parameters_with_sensible_errors():
+    from fastrack.analysis import fit_plateau
+    L, V = _lv_data()
+    r = fit_plateau(L, V, "exp")
+    assert r["ok"] and r["n"] == 600
+    assert abs(r["plateau"] - 1900) < 3 * r["plateau_se"] + 20
+    assert 5 < r["plateau_se"] < 200
+    u = fit_plateau(L, V, "uyeda")
+    assert u["ok"] and 1500 < u["plateau"] < 2600 and 0 < u["params"][1] < 1
+
+
+def test_fit_plateau_fails_cleanly():
+    from fastrack.analysis import fit_plateau
+    r = fit_plateau([1000, 2000], [1500, 1700], "exp")
+    assert not r["ok"] and r["plateau"] == -1
+    with pytest.raises(ValueError):
+        fit_plateau([1, 2, 3], [1, 2, 3], "linear")
+
+
+def test_plot_fit_ignores_impossibly_long_filaments(tmp_path):
+    """One merged clump 224 um 'long' used to drag the plateau to ~2e5 nm/s."""
+    from fastrack.core.motility import Motility
+    L, V = _lv_data(n=400)
+    rows = np.column_stack([L, V, 0.05 * V, np.full(len(L), 12.0)])
+    clump = np.array([[224000.0, 1900.0, 50.0, 12.0]])
+    m = Motility()
+    m.full_len_vel = np.vstack([rows, clump])
+    m.max_len_vel = np.vstack([rows, clump])
+    m.directory = str(tmp_path)
+    stats = m.plot_length_velocity(min_points=10, percent_tolerance=500, fit_f="exp",
+                                   print_plot=False)
+    assert 1700 < stats[4] < 2100                 # plateau
+    assert m.fit_result["ok"] and m.fit_result["n"] == 400
+
+
+@pytest.mark.parametrize("units", [False, True])
+def test_figure_with_fit_and_units_renders(tmp_path, units):
+    from fastrack.core.motility import Motility
+    L, V = _lv_data(n=300)
+    rows = np.column_stack([L, V, 0.05 * V, np.full(len(L), 12.0)])
+    m = Motility()
+    m.full_len_vel, m.max_len_vel = rows, rows
+    m.directory = str(tmp_path)
+    m.plot_length_velocity(header="u%d_" % units, min_points=10, percent_tolerance=500,
+                           fit_f="exp", print_plot=True, label_units=units)
+    assert (tmp_path / ("u%d_length_velocity.png" % units)).exists()
