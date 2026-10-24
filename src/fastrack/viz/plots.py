@@ -176,6 +176,7 @@ class MotilityPlots:
         plot_length_f=False,
         fit_f="exp",
         dpi_plot=200,
+        label_position="top",
     ):
         """Compute velocity statistics and (optionally) render the length-velocity plot.
 
@@ -186,7 +187,13 @@ class MotilityPlots:
         controlled a length-weighted coupling fit whose results were never used
         (and which, because its length histogram mixed nm and um, never ran
         successfully).  The fit that matters is selected by ``fit_f``.
+
+        ``label_position`` ("top" or "bottom") places the value labels of the
+        three top panels (TOP5%, MVEL, %STUCK, ...) on shared rows near the top
+        or near the bottom of the panels.
         """
+        if label_position not in ("top", "bottom"):
+            raise ValueError("label_position must be 'top' or 'bottom', got %r" % (label_position,))
         valid = np.nonzero(self.full_len_vel[:, 0] < max_length)[0]
         self.full_len_vel = self.full_len_vel[valid, :]
 
@@ -357,6 +364,7 @@ class MotilityPlots:
                 max_vel_tau=max_vel_tau,
                 max_vel_r=max_vel_r,
                 text_font_size=text_font_size,
+                label_position=label_position,
             )
 
         if fit_f != "none":
@@ -391,6 +399,7 @@ class MotilityPlots:
         """Render the length-velocity figure.  Isolated so a plotting failure
         cannot corrupt the numeric statistics returned to the caller."""
         header = kw["header"]
+        label_position = kw.get("label_position", "top")
         extra_fname = kw["extra_fname"]
         minimal_plot = kw["minimal_plot"]
         square_plot = kw["square_plot"]
@@ -699,17 +708,27 @@ class MotilityPlots:
             axHisty1.text(0.1 * max_prob_t, 1.1 * max_vel, "Filtered", fontsize=text_font_size)
             axHisty2.text(0.1 * max_prob_a, 1.1 * max_vel, "Unfiltered", fontsize=text_font_size)
 
-            # value key in the upper right: long filaments are rare, so this
-            # corner is usually empty (upper left sat on the short-filament cloud)
+            # The value labels of the three top panels share two rows, so they
+            # line up across the figure: row 1 = TOP5% | MVEL filtered | MVEL,
+            # row 2 = PLATEAU | %STUCK.  label_position puts the rows near the
+            # top of the panels or near the bottom (slow, long filaments are
+            # rare, so the bottom of the scatter and histograms is often empty).
+            if label_position == "bottom":
+                row1, row2 = 0.19 * max_vel, 0.06 * max_vel
+            else:
+                row1, row2 = 0.86 * max_vel, 0.73 * max_vel
+            key_dy = 0.02 * max_vel          # key line at mid-height of the digits
+            # value key on the right: long filaments are rare, so that side is
+            # usually empty (the left sat on the short-filament cloud)
             axScatter.plot(
                 max_length * 1e-3 * np.array([9, 10]) / 15.0,
-                [2150 / 2400.0 * max_vel, 2150 / 2400.0 * max_vel],
+                [row1 + key_dy, row1 + key_dy],
                 "k--",
                 linewidth=5,
             )
             axScatter.text(
                 max_length * 1e-3 * 10.1 / 15.0,
-                2100 / 2400.0 * max_vel,
+                row1,
                 r"%.f$^{TOP5\%%}$" % (top_5_velocity),
                 fontsize=text_font_size,
                 color="k",
@@ -719,13 +738,13 @@ class MotilityPlots:
             if fit_f != "none":
                 axScatter.plot(
                     max_length * 1e-3 * np.array([9, 10]) / 15.0,
-                    [1850 / 2400.0 * max_vel, 1850 / 2400.0 * max_vel],
+                    [row2 + key_dy, row2 + key_dy],
                     "k-",
                     linewidth=10,
                 )
                 axScatter.text(
                     max_length * 1e-3 * 10.1 / 15.0,
-                    1800 / 2400.0 * max_vel,
+                    row2,
                     r"%.f$^{PLATEAU}$" % (max_vel_u),
                     fontsize=text_font_size,
                     color="k",
@@ -734,7 +753,7 @@ class MotilityPlots:
 
             axHisty1.text(
                 0.1 * max_prob_t,
-                1900 / 2400.0 * max_vel,
+                row1,
                 r"%.f$^{MVEL_{%s}}$" % (MVEL_filtered, tolerance_string),
                 fontsize=text_font_size,
                 color="k",
@@ -742,15 +761,15 @@ class MotilityPlots:
             )
             axHisty2.text(
                 0.1 * max_prob_a,
-                1900 / 2400.0 * max_vel,
+                row1,
                 r"%.f$^{MVEL}$" % (MVEL),
                 fontsize=text_font_size,
                 color="k",
                 bbox=_LABEL_BOX,
             )
             axHisty2.text(
-                0.15 * max_prob_a,
-                1600 / 2400.0 * max_vel,
+                0.1 * max_prob_a,
+                row2,
                 r"%.f$^{\%%STUCK}$" % (percent_stuck),
                 fontsize=text_font_size,
                 color="k",
