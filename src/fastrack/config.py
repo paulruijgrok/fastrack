@@ -59,7 +59,7 @@ class PlottingSettings:
     paths_style: str = "velocity"     # paths_2D figure: "velocity" | "legacy" (original)
     paths_labels: bool = False        # paths_2D: write each track's mean velocity
     scale_bar_um: float = 10.0        # paths_2D scale bar length (um); 0 = none
-    paths_colormap: str = "blue"      # paths_2D colours: "blue" (blue/white/grey) or a matplotlib name
+    paths_colormap: str = "blue"      # paths_2D colours: "blue", "blue-red" or a matplotlib name
 
 
 @dataclass

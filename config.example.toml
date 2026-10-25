@@ -37,7 +37,7 @@ label_position = "bottom"             # length-velocity value labels: "bottom" o
 paths_style = "velocity"              # paths_2D: tracks coloured by velocity; "legacy" = original
 paths_labels = false                  # paths_2D: write each track's mean velocity (nm/s)
 scale_bar_um = 10                     # paths_2D scale bar (um); 0 = none
-paths_colormap = "blue"               # paths_2D: "blue" (blue/white/grey) or a matplotlib name, e.g. "viridis"
+paths_colormap = "blue"               # paths_2D: "blue", "blue-red" (white = median, on grey) or a matplotlib name
 
 [runtime]
 make_movie = false

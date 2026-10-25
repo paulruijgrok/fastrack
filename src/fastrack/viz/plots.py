@@ -47,23 +47,37 @@ def auto_velocity_limit(velocities, top_5_velocity=0.0, step=250.0, margin=1.1):
     return float(step * np.ceil(margin * top / step))
 
 
-# blue scheme: pale blue (slow) -> navy (fast); pale end kept visible on white
-_BLUE_STOPS = ["#bdd7ee", "#6baed6", "#2171b5", "#08306b"]
+# paths_2D colour schemes: colour stops, ink (scale bar / text), stuck-track
+# colour, background, and whether the scale is centred on the median velocity
+_PATH_SCHEMES = {
+    # pale blue (slow) -> navy (fast); pale end kept visible on white
+    "blue": dict(stops=["#bdd7ee", "#6baed6", "#2171b5", "#08306b"],
+                 ink="0.25", stuck="0.6", bg="white", centred=False),
+    # diverging, white = the movie's median track velocity: blue slower, red
+    # faster. Grey background so the white (typical) tracks stay visible.
+    "blue-red": dict(stops=["#08306b", "#2171b5", "#9ecae1", "#ffffff",
+                            "#fc9272", "#cb181d", "#67000d"],
+                     ink="0.15", stuck="0.4", bg="0.78", centred=True),
+}
 
 
 def paths_colormap(name="blue"):
-    """(colormap, ink colour for scale bar/text, stuck-track colour) for paths_2D.
+    """Colour scheme for paths_2D: dict(cmap, ink, stuck, bg, centred).
 
-    ``"blue"``: blue on white with grey for stuck tracks and dark-grey ink;
-    any other name is a matplotlib colormap (e.g. ``"viridis"``) with black ink.
+    ``"blue"``: blue on white, grey stuck tracks. ``"blue-red"``: diverging
+    blue-white-red centred on the median track velocity, on light grey. Any
+    other name is a matplotlib colormap (e.g. ``"viridis"``) on white.
     """
     from matplotlib.colors import LinearSegmentedColormap
-    if name == "blue":
-        return LinearSegmentedColormap.from_list("fastrack_blue", _BLUE_STOPS), "0.25", "0.6"
+    if name in _PATH_SCHEMES:
+        sc = dict(_PATH_SCHEMES[name])
+        sc["cmap"] = LinearSegmentedColormap.from_list("fastrack_" + name, sc.pop("stops"))
+        return sc
     try:
-        return matplotlib.colormaps[name], "k", "0.6"
+        cmap = matplotlib.colormaps[name]
     except KeyError:
         raise ValueError("unknown paths colormap %r" % name) from None
+    return dict(cmap=cmap, ink="k", stuck="0.6", bg="white", centred=False)
 
 
 def track_midpoints(path):
@@ -150,8 +164,14 @@ class MotilityPlots:
         # (top tick reads ">= vmax") instead of compressing everything else
         mv = vels[(~stuck_flags) & np.isfinite(vels) & (vels > 0)]
         vmax = auto_velocity_limit([np.percentile(mv, 95)] if mv.size else [], 0.0, margin=1.0)
-        norm = Normalize(0, vmax)
-        cmap, ink, stuck_c = paths_colormap(colormap)
+        scheme = paths_colormap(colormap)
+        cmap, ink, stuck_c = scheme["cmap"], scheme["ink"], scheme["stuck"]
+        v_mid = float(np.median(mv)) if mv.size else 0.5 * vmax
+        if scheme["centred"] and 0 < v_mid < vmax:
+            from matplotlib.colors import TwoSlopeNorm
+            norm = TwoSlopeNorm(vcenter=v_mid, vmin=0, vmax=vmax)
+        else:
+            norm = Normalize(0, vmax)
         W, H = float(self.width), float(self.height)
 
         def draw(labels, fname):
@@ -165,6 +185,7 @@ class MotilityPlots:
             ax.set_aspect("equal")
             ax.set_xticks([])
             ax.set_yticks([])
+            ax.set_facecolor(scheme["bg"])
             lw = 1.2
             moving = [t for t, s_ in zip(tracks, stuck_flags) if not s_ and len(t) > 1]
             moving_v = [v for v, s_, t in zip(vels, stuck_flags, tracks) if not s_ and len(t) > 1]
@@ -205,6 +226,11 @@ class MotilityPlots:
                 cb.set_ticks(ticks)
                 cb.set_ticklabels(["%g" % t for t in ticks[:-1]] + ["\u2265%g" % vmax])
                 cb.ax.set_ylim(0, vmax)
+            if isinstance(norm, matplotlib.colors.TwoSlopeNorm):
+                # ticks on a two-slope bar: 0, the median (white), vmax
+                cb.set_ticks([0, v_mid, vmax])
+                top = ("\u2265%g" if np.any(vels > vmax) else "%g") % vmax
+                cb.set_ticklabels(["0", "%.0f\n(median)" % v_mid, top])
             cb.set_label("Track velocity (median, nm/s)", fontsize=12)
             cb.ax.tick_params(labelsize=10)
             if len(static):

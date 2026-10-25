@@ -198,12 +198,13 @@ def test_paths_settings_reach_the_pipeline():
 def test_paths_colormap_blue_default_and_matplotlib_names(tmp_path):
     from fastrack.viz.plots import paths_colormap
     assert Settings().to_run_kwargs()["paths_colormap"] == "blue"
-    cmap, ink, stuck = paths_colormap("blue")
-    r, g, b, _ = cmap(1.0)
+    r, g, b, _ = paths_colormap("blue")["cmap"](1.0)
     assert b > r and b > g                              # fast end is blue
-    assert paths_colormap("viridis")[0].name == "viridis"
+    assert paths_colormap("viridis")["cmap"].name == "viridis"
+    assert paths_colormap("blue-red")["centred"]
     with pytest.raises(ValueError):
         paths_colormap("no-such-map")
     m = _paths_motility(tmp_path)
     m.plot_2D_path_data(5, colormap="viridis")
+    m.plot_2D_path_data(5, colormap="blue-red")
     assert (tmp_path / "paths_2D.png").exists()
