@@ -131,3 +131,65 @@ def test_figure_with_fit_and_units_renders(tmp_path, units):
     m.plot_length_velocity(header="u%d_" % units, min_points=10, percent_tolerance=500,
                            fit_f="exp", print_plot=True, label_units=units)
     assert (tmp_path / ("u%d_length_velocity.png" % units)).exists()
+
+
+# --------------------------------------------------------------------------- #
+# paths_2D
+# --------------------------------------------------------------------------- #
+def _paths_motility(tmp_path, n=12, steps=8):
+    """n straight tracks moving +x (columns) by 3 px/frame; the last one stuck."""
+    from fastrack.core.link import Link, Path
+    from fastrack.core.motility import Motility
+    paths = []
+    for k in range(n):
+        links = []
+        for t in range(steps):
+            lk = Link()
+            lk.frame1_no, lk.frame2_no = t, t + 1
+            lk.filament1_midpoint = np.array([20 + 15 * k, 10 + 3 * t])     # [row, col]
+            lk.filament2_midpoint = np.array([20 + 15 * k, 10 + 3 * (t + 1)])
+            lk.instant_velocity = 300.0 + 100 * k
+            lk.average_length = 1500.0
+            links.append(lk)
+        p = Path()
+        p.links = links[::-1]                    # latest first, as create_paths stores them
+        p.stuck = (k == n - 1)
+        paths.append(p)
+    m = Motility()
+    m.paths, m.width, m.height, m.dx = paths, 256, 256, 80.65
+    m.directory = str(tmp_path)
+    return m
+
+
+def test_track_midpoints_run_forward_in_time(tmp_path):
+    from fastrack.viz.plots import track_midpoints
+    m = _paths_motility(tmp_path)
+    xy = track_midpoints(m.paths[0])
+    assert len(xy) == 9
+    assert np.all(np.diff(xy[:, 0]) == 3)        # columns increase: earliest -> latest
+    assert np.all(xy[:, 1] == 20)
+
+
+@pytest.mark.parametrize("style,labels", [("velocity", False), ("velocity", True), ("legacy", False)])
+def test_paths_2D_styles_render(tmp_path, style, labels):
+    m = _paths_motility(tmp_path)
+    extra = str(tmp_path / "movie")
+    m.plot_2D_path_data(5, extra_fname=extra, style=style, show_labels=labels, scale_bar_um=10)
+    assert (tmp_path / "paths_2D.png").exists() and (tmp_path / "movie_2D.png").exists()
+    assert m.path_stats.shape == (12, 6)
+
+
+def test_paths_2D_rejects_unknown_style(tmp_path):
+    m = _paths_motility(tmp_path)
+    with pytest.raises(ValueError):
+        m.plot_2D_path_data(5, style="rainbow")
+
+
+def test_paths_settings_reach_the_pipeline():
+    s = Settings()
+    kw = s.to_run_kwargs()
+    assert (kw["paths_style"], kw["paths_labels"], kw["scale_bar_um"]) == ("velocity", False, 10.0)
+    import inspect
+    from fastrack.pipelines import gliding
+    params = inspect.signature(gliding.run).parameters
+    assert {"paths_style", "paths_labels", "scale_bar_um"} <= set(params)

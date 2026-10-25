@@ -47,6 +47,17 @@ def auto_velocity_limit(velocities, top_5_velocity=0.0, step=250.0, margin=1.1):
     return float(step * np.ceil(margin * top / step))
 
 
+def track_midpoints(path):
+    """A track's filament midpoints as (x=col, y=row), earliest frame first.
+
+    ``Path.links`` is stored latest link first; in each link ``filament1`` is
+    the earlier frame and ``filament2`` the later one.
+    """
+    links = path.links[::-1]
+    pts = [links[0].filament1_midpoint] + [lk.filament2_midpoint for lk in links]
+    return np.array([[p[1], p[0]] for p in pts], dtype=float)
+
+
 def make_N_colors(cmap_name, N):
     try:
         cmap = matplotlib.colormaps[cmap_name].resampled(N)
@@ -58,7 +69,130 @@ def make_N_colors(cmap_name, N):
 class MotilityPlots:
     """Plotting methods mixed into :class:`fastrack.core.motility.Motility`."""
 
-    def plot_2D_path_data(self, num_points, extra_fname=None):
+    def plot_2D_path_data(self, num_points, extra_fname=None, style="velocity",
+                          show_labels=False, scale_bar_um=10.0):
+        """Draw the tracks of all filaments followed for >= ``num_points`` links.
+
+        Writes ``<directory>/paths_2D.png`` (no labels) and, with
+        ``extra_fname``, ``<extra_fname>_2D.png`` (labels if ``show_labels``).
+
+        ``style="velocity"`` (default): one line per track through the
+        filament midpoints, coloured by the track's mean velocity (colourbar,
+        nm/s), stuck tracks in grey, one arrowhead at the latest position
+        pointing along the motion, a scale bar of ``scale_bar_um`` um (0 = none)
+        and no margins.  ``show_labels`` writes each track's mean velocity.
+
+        ``style="legacy"``: the original FAST figure (arrows per step in an
+        arbitrary qualitative palette, velocity numbers always on the
+        ``extra_fname`` copy).  Note its arrowheads point from the later to the
+        earlier position, i.e. against the motion.
+        """
+        if style == "legacy":
+            return self._plot_2D_path_data_legacy(num_points, extra_fname=extra_fname)
+        if style != "velocity":
+            raise ValueError("paths style must be 'velocity' or 'legacy', got %r" % (style,))
+        return self._plot_2D_path_data_velocity(num_points, extra_fname=extra_fname,
+                                                show_labels=show_labels,
+                                                scale_bar_um=scale_bar_um)
+
+    def _plot_2D_path_data_velocity(self, num_points, extra_fname=None, show_labels=False,
+                                    scale_bar_um=10.0):
+        from matplotlib.collections import LineCollection
+        from matplotlib.colors import Normalize
+
+        filtered_paths = [x for x in self.paths if len(x.links) >= num_points]
+        self.path_data, self.path_stats = [], []
+        if len(filtered_paths) == 0:
+            return
+
+        tracks, vels, stuck_flags = [], [], []
+        for path in filtered_paths:
+            links = path.links[::-1]                       # earliest link first
+            xy = track_midpoints(path)
+            len_array = np.array([np.fabs(lk.average_length) for lk in links])
+            vel_array = np.array([np.fabs(lk.instant_velocity) for lk in links])
+            stuck = bool(path.stuck)
+            # colour by the median: robust to the odd mislinked step, whose
+            # instant velocity can be 100x the track's real speed
+            track_v = 0.0 if stuck else float(np.median(vel_array))
+            # same bookkeeping as the legacy plot (other code may read these)
+            self.path_data.append([links[0].frame1_no, stuck, vel_array])
+            self.path_stats.append([links[0].frame1_no, stuck, len(path.links),
+                                    np.mean(len_array), np.mean(vel_array), np.std(vel_array)])
+            tracks.append(xy)
+            vels.append(track_v)
+            stuck_flags.append(stuck)
+        self.path_stats = np.array(self.path_stats)
+        vels = np.asarray(vels)
+        stuck_flags = np.asarray(stuck_flags)
+
+        # scale from the bulk of the moving tracks; faster ones saturate
+        # (colourbar extends) instead of compressing everything else
+        mv = vels[(~stuck_flags) & np.isfinite(vels) & (vels > 0)]
+        vmax = auto_velocity_limit([np.percentile(mv, 95)] if mv.size else [], 0.0, margin=1.0)
+        norm = Normalize(0, vmax)
+        cmap = matplotlib.colormaps["viridis"]
+        W, H = float(self.width), float(self.height)
+
+        def draw(labels, fname):
+            # figure exactly the image's aspect, axes filling it: no margins;
+            # the colourbar sits outside and bbox_inches="tight" keeps it
+            fig_w = 8.0
+            fig = py.figure(figsize=(fig_w, fig_w * H / W))
+            ax = fig.add_axes([0, 0, 1, 1])
+            ax.set_xlim(0, W)
+            ax.set_ylim(H, 0)                              # image orientation
+            ax.set_aspect("equal")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            lw = 1.2
+            moving = [t for t, s_ in zip(tracks, stuck_flags) if not s_ and len(t) > 1]
+            moving_v = [v for v, s_, t in zip(vels, stuck_flags, tracks) if not s_ and len(t) > 1]
+            static = [t for t, s_ in zip(tracks, stuck_flags) if s_ and len(t) > 1]
+            if static:
+                ax.add_collection(LineCollection(static, colors="0.6", linewidths=lw))
+            if moving:
+                lc = LineCollection(moving, cmap=cmap, norm=norm, linewidths=lw)
+                lc.set_array(np.asarray(moving_v))
+                ax.add_collection(lc)
+            # one arrowhead per moving track, at its latest point, along the motion
+            for t, v in zip(moving, moving_v):
+                d = t[-1] - t[-2]
+                if not np.any(d):
+                    continue
+                ax.annotate("", xy=t[-1], xytext=t[-1] - 0.5 * d,
+                            arrowprops=dict(arrowstyle="-|>", color=cmap(norm(v)),
+                                            lw=lw, mutation_scale=9, shrinkA=0, shrinkB=0))
+            if labels:
+                for t, v in zip(tracks, vels):
+                    c = t.mean(axis=0)
+                    ax.text(c[0], c[1], "%.f" % v, fontsize=6, color="k")
+            if scale_bar_um and self.dx:
+                bar_px = scale_bar_um * 1000.0 / float(self.dx)
+                x0, y0 = 0.04 * W, 0.95 * H
+                ax.plot([x0, x0 + bar_px], [y0, y0], "-", color="k", linewidth=4,
+                        solid_capstyle="butt")
+                ax.text(x0 + bar_px / 2, y0 - 0.015 * H, "%g $\\mu$m" % scale_bar_um,
+                        ha="center", va="bottom", fontsize=12)
+            sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
+            cax = fig.add_axes([1.02, 0.15, 0.03, 0.7])
+            extend = "max" if np.any(vels > vmax) else "neither"
+            cb = fig.colorbar(sm, cax=cax, extend=extend)
+            cb.formatter.set_useOffset(False)
+            cb.set_label("Track velocity (median, nm/s)", fontsize=12)
+            cb.ax.tick_params(labelsize=10)
+            if len(static):
+                cax.text(0.5, -0.06, "grey: stuck", transform=cax.transAxes, ha="center",
+                         va="top", fontsize=10, color="0.45")
+            fig.savefig(fname, dpi=300, bbox_inches="tight", pad_inches=0.05)
+            py.close(fig)
+
+        draw(False, self.directory + "/paths_2D.png")
+        if extra_fname is not None:
+            draw(show_labels, extra_fname + "_2D.png")
+
+    def _plot_2D_path_data_legacy(self, num_points, extra_fname=None):
+        """The original FAST paths figure, unchanged (``style="legacy"``)."""
         ratio = self.width / 1002.0
 
         self.path_data = []

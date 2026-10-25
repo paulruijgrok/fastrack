@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **New `paths_2D` style** (`[plotting] paths_style = "velocity"`, default):
+  tracks drawn forward in time, coloured by each track's median velocity
+  (viridis; scale from the 95th percentile of the moving tracks, faster tracks
+  saturate), one arrowhead per track in the direction of motion, stuck tracks in
+  grey, a scale bar (`scale_bar_um`, default 10) and no margins. Per-track
+  numbers are off by default (`paths_labels = true` to show them). The original
+  figure is kept as `paths_style = "legacy"`.
 - **Preview mode (`fast-preview`).** A few-seconds first look at a movie, for use
   at the microscope: gliding velocity, length distribution, stuck fraction, and
   image-quality metrics (SNR, focus, illumination flatness, saturation,

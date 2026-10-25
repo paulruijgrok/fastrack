@@ -56,6 +56,9 @@ class PlottingSettings:
     xmax: int = 10000
     maxvel_color: str = "b"
     label_position: str = "bottom"    # length-velocity value labels: "bottom" | "top"
+    paths_style: str = "velocity"     # paths_2D figure: "velocity" | "legacy" (original)
+    paths_labels: bool = False        # paths_2D: write each track's mean velocity
+    scale_bar_um: float = 10.0        # paths_2D scale bar length (um); 0 = none
 
 
 @dataclass
@@ -335,6 +338,9 @@ class Settings:
             "plot_xmax": pl.xmax,
             "maxvel_color": pl.maxvel_color,
             "label_position": pl.label_position,
+            "paths_style": pl.paths_style,
+            "paths_labels": pl.paths_labels,
+            "scale_bar_um": pl.scale_bar_um,
             "force_analysis": rt.force_analysis,
             "recalculate": rt.recalculate,
             "make_movie": rt.make_movie,

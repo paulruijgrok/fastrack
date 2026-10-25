@@ -135,6 +135,9 @@ def run(
     plot_xmax=10000,
     maxvel_color="b",
     label_position="bottom",
+    paths_style="velocity",
+    paths_labels=False,
+    scale_bar_um=10.0,
     fit_function="none",
     max_velocity=2016.25,
     min_velocity=80,
@@ -504,7 +507,9 @@ def run(
                 new_motility.save_links()
 
             new_motility.process_frame_links(num_frames_ave)
-            new_motility.plot_2D_path_data(num_frames_ave, extra_fname=out_path_fname)
+            new_motility.plot_2D_path_data(num_frames_ave, extra_fname=out_path_fname,
+                                               style=paths_style, show_labels=paths_labels,
+                                               scale_bar_um=scale_bar_um)
 
             # Rich trajectory export (one tidy CSV per movie, physical units).
             # Done here -- before the sparse-movie stats gate below -- so every

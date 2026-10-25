@@ -34,6 +34,9 @@ ymax = 0                              # plot velocity limit (nm/s); 0 = from the
 xmax = 10000
 maxvel_color = "b"
 label_position = "bottom"             # length-velocity value labels: "bottom" or "top"
+paths_style = "velocity"              # paths_2D: tracks coloured by velocity; "legacy" = original
+paths_labels = false                  # paths_2D: write each track's mean velocity (nm/s)
+scale_bar_um = 10                     # paths_2D scale bar (um); 0 = none
 
 [runtime]
 make_movie = false
