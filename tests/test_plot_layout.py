@@ -208,3 +208,11 @@ def test_paths_colormap_blue_default_and_matplotlib_names(tmp_path):
     m.plot_2D_path_data(5, colormap="viridis")
     m.plot_2D_path_data(5, colormap="blue-red")
     assert (tmp_path / "paths_2D.png").exists()
+
+
+def test_paths_points_toggle(tmp_path):
+    assert Settings().to_run_kwargs()["paths_points"] is True
+    m = _paths_motility(tmp_path)
+    for pts in (True, False):
+        m.plot_2D_path_data(5, show_points=pts)
+    assert (tmp_path / "paths_2D.png").exists()

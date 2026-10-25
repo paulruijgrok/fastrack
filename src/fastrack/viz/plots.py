@@ -103,7 +103,8 @@ class MotilityPlots:
     """Plotting methods mixed into :class:`fastrack.core.motility.Motility`."""
 
     def plot_2D_path_data(self, num_points, extra_fname=None, style="velocity",
-                          show_labels=False, scale_bar_um=10.0, colormap="blue"):
+                          show_labels=False, scale_bar_um=10.0, colormap="blue",
+                          show_points=True):
         """Draw the tracks of all filaments followed for >= ``num_points`` links.
 
         Writes ``<directory>/paths_2D.png`` (no labels) and, with
@@ -127,10 +128,11 @@ class MotilityPlots:
         return self._plot_2D_path_data_velocity(num_points, extra_fname=extra_fname,
                                                 show_labels=show_labels,
                                                 scale_bar_um=scale_bar_um,
-                                                colormap=colormap)
+                                                colormap=colormap, show_points=show_points)
 
     def _plot_2D_path_data_velocity(self, num_points, extra_fname=None, show_labels=False,
-                                    scale_bar_um=10.0, colormap="blue"):
+                                    scale_bar_um=10.0, colormap="blue",
+                                    show_points=True):
         from matplotlib.collections import LineCollection
         from matplotlib.colors import Normalize
 
@@ -196,6 +198,16 @@ class MotilityPlots:
                 lc = LineCollection(moving, cmap=cmap, norm=norm, linewidths=lw)
                 lc.set_array(np.asarray(moving_v))
                 ax.add_collection(lc)
+            if show_points:
+                # filament midpoint in each frame: small dots on the track
+                pts = [t for t in moving] + [t for t in static]
+                cols = [cmap(norm(v)) for v in moving_v] + [stuck_c] * len(static)
+                xy = np.concatenate(pts) if pts else np.zeros((0, 2))
+                c = np.concatenate([np.repeat(np.atleast_2d(matplotlib.colors.to_rgba(cc)), len(t), 0)
+                                    for t, cc in zip(pts, cols)]) if pts else None
+                if c is not None:
+                    c[:, :3] *= 0.6                        # a darker shade of the track
+                ax.scatter(xy[:, 0], xy[:, 1], s=3.5, c=c, linewidths=0, zorder=3)
             # one arrowhead per moving track, at its latest point, along the motion
             for t, v in zip(moving, moving_v):
                 d = t[-1] - t[-2]

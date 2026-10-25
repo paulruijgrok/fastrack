@@ -14,7 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   median track velocity on a light-grey background; any matplotlib colormap
   name such as `"viridis"` also works; scale from the 95th percentile of the moving tracks, faster tracks
   share the top colour, labelled "≥" on the colourbar), one arrowhead per track in the direction of motion, stuck tracks in
-  grey, a scale bar (`scale_bar_um`, default 10) and no margins. Per-track
+  grey, a scale bar (`scale_bar_um`, default 10) and no margins. A small dot in a darker
+  shade marks the filament position in each frame (`paths_points`). Per-track
   numbers are off by default (`paths_labels = true` to show them). The original
   figure is kept as `paths_style = "legacy"`.
 - **Preview mode (`fast-preview`).** A few-seconds first look at a movie, for use
