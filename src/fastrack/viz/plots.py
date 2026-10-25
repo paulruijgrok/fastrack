@@ -47,6 +47,25 @@ def auto_velocity_limit(velocities, top_5_velocity=0.0, step=250.0, margin=1.1):
     return float(step * np.ceil(margin * top / step))
 
 
+# blue scheme: pale blue (slow) -> navy (fast); pale end kept visible on white
+_BLUE_STOPS = ["#bdd7ee", "#6baed6", "#2171b5", "#08306b"]
+
+
+def paths_colormap(name="blue"):
+    """(colormap, ink colour for scale bar/text, stuck-track colour) for paths_2D.
+
+    ``"blue"``: blue on white with grey for stuck tracks and dark-grey ink;
+    any other name is a matplotlib colormap (e.g. ``"viridis"``) with black ink.
+    """
+    from matplotlib.colors import LinearSegmentedColormap
+    if name == "blue":
+        return LinearSegmentedColormap.from_list("fastrack_blue", _BLUE_STOPS), "0.25", "0.6"
+    try:
+        return matplotlib.colormaps[name], "k", "0.6"
+    except KeyError:
+        raise ValueError("unknown paths colormap %r" % name) from None
+
+
 def track_midpoints(path):
     """A track's filament midpoints as (x=col, y=row), earliest frame first.
 
@@ -70,7 +89,7 @@ class MotilityPlots:
     """Plotting methods mixed into :class:`fastrack.core.motility.Motility`."""
 
     def plot_2D_path_data(self, num_points, extra_fname=None, style="velocity",
-                          show_labels=False, scale_bar_um=10.0):
+                          show_labels=False, scale_bar_um=10.0, colormap="blue"):
         """Draw the tracks of all filaments followed for >= ``num_points`` links.
 
         Writes ``<directory>/paths_2D.png`` (no labels) and, with
@@ -93,10 +112,11 @@ class MotilityPlots:
             raise ValueError("paths style must be 'velocity' or 'legacy', got %r" % (style,))
         return self._plot_2D_path_data_velocity(num_points, extra_fname=extra_fname,
                                                 show_labels=show_labels,
-                                                scale_bar_um=scale_bar_um)
+                                                scale_bar_um=scale_bar_um,
+                                                colormap=colormap)
 
     def _plot_2D_path_data_velocity(self, num_points, extra_fname=None, show_labels=False,
-                                    scale_bar_um=10.0):
+                                    scale_bar_um=10.0, colormap="blue"):
         from matplotlib.collections import LineCollection
         from matplotlib.colors import Normalize
 
@@ -131,7 +151,7 @@ class MotilityPlots:
         mv = vels[(~stuck_flags) & np.isfinite(vels) & (vels > 0)]
         vmax = auto_velocity_limit([np.percentile(mv, 95)] if mv.size else [], 0.0, margin=1.0)
         norm = Normalize(0, vmax)
-        cmap = matplotlib.colormaps["viridis"]
+        cmap, ink, stuck_c = paths_colormap(colormap)
         W, H = float(self.width), float(self.height)
 
         def draw(labels, fname):
@@ -150,7 +170,7 @@ class MotilityPlots:
             moving_v = [v for v, s_, t in zip(vels, stuck_flags, tracks) if not s_ and len(t) > 1]
             static = [t for t, s_ in zip(tracks, stuck_flags) if s_ and len(t) > 1]
             if static:
-                ax.add_collection(LineCollection(static, colors="0.6", linewidths=lw))
+                ax.add_collection(LineCollection(static, colors=stuck_c, linewidths=lw))
             if moving:
                 lc = LineCollection(moving, cmap=cmap, norm=norm, linewidths=lw)
                 lc.set_array(np.asarray(moving_v))
@@ -170,20 +190,21 @@ class MotilityPlots:
             if scale_bar_um and self.dx:
                 bar_px = scale_bar_um * 1000.0 / float(self.dx)
                 x0, y0 = 0.04 * W, 0.95 * H
-                ax.plot([x0, x0 + bar_px], [y0, y0], "-", color="k", linewidth=4,
+                ax.plot([x0, x0 + bar_px], [y0, y0], "-", color=ink, linewidth=4,
                         solid_capstyle="butt")
                 ax.text(x0 + bar_px / 2, y0 - 0.015 * H, "%g $\\mu$m" % scale_bar_um,
-                        ha="center", va="bottom", fontsize=12)
+                        ha="center", va="bottom", fontsize=12, color=ink)
             sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
             cax = fig.add_axes([1.02, 0.15, 0.03, 0.7])
             cb = fig.colorbar(sm, cax=cax)
             cb.formatter.set_useOffset(False)
             if np.any(vels > vmax):
                 # faster tracks share the top colour; say so on the top tick
-                fig.canvas.draw()
-                ticks = cb.get_ticks()
+                ticks = matplotlib.ticker.MaxNLocator(5).tick_values(0, vmax)
+                ticks = [t for t in ticks if 0 <= t < vmax - 1e-9] + [vmax]
                 cb.set_ticks(ticks)
-                cb.set_ticklabels(["%g" % t if t < vmax else "\u2265%g" % t for t in ticks])
+                cb.set_ticklabels(["%g" % t for t in ticks[:-1]] + ["\u2265%g" % vmax])
+                cb.ax.set_ylim(0, vmax)
             cb.set_label("Track velocity (median, nm/s)", fontsize=12)
             cb.ax.tick_params(labelsize=10)
             if len(static):
