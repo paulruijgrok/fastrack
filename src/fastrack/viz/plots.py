@@ -127,7 +127,7 @@ class MotilityPlots:
         stuck_flags = np.asarray(stuck_flags)
 
         # scale from the bulk of the moving tracks; faster ones saturate
-        # (colourbar extends) instead of compressing everything else
+        # (top tick reads ">= vmax") instead of compressing everything else
         mv = vels[(~stuck_flags) & np.isfinite(vels) & (vels > 0)]
         vmax = auto_velocity_limit([np.percentile(mv, 95)] if mv.size else [], 0.0, margin=1.0)
         norm = Normalize(0, vmax)
@@ -176,9 +176,14 @@ class MotilityPlots:
                         ha="center", va="bottom", fontsize=12)
             sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
             cax = fig.add_axes([1.02, 0.15, 0.03, 0.7])
-            extend = "max" if np.any(vels > vmax) else "neither"
-            cb = fig.colorbar(sm, cax=cax, extend=extend)
+            cb = fig.colorbar(sm, cax=cax)
             cb.formatter.set_useOffset(False)
+            if np.any(vels > vmax):
+                # faster tracks share the top colour; say so on the top tick
+                fig.canvas.draw()
+                ticks = cb.get_ticks()
+                cb.set_ticks(ticks)
+                cb.set_ticklabels(["%g" % t if t < vmax else "\u2265%g" % t for t in ticks])
             cb.set_label("Track velocity (median, nm/s)", fontsize=12)
             cb.ax.tick_params(labelsize=10)
             if len(static):
