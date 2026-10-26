@@ -191,10 +191,13 @@ def signature(spec: DatasetSpec) -> str:
     return h.hexdigest()[:16]
 
 
-def _run_kwargs_for(spec: DatasetSpec) -> Dict:
-    """Build gliding.run kwargs from the dataset's config (or defaults)."""
+def _run_kwargs_for(spec: DatasetSpec, plot_cli: Optional[Dict] = None) -> Dict:
+    """Build gliding.run kwargs from the dataset's config (or defaults), plus
+    the batch-wide figure options from the command line (``plot_cli``)."""
     from ..config import Settings
     settings = Settings.from_toml(spec.config) if spec.config else Settings()
+    if plot_cli:
+        settings = settings.with_plot_overrides(**plot_cli)
     return settings.to_run_kwargs()
 
 
@@ -332,7 +335,7 @@ def _setup_logging(logdir, verbose):
 def run_batch(manifest, state=None, logdir="fastrack_batch_logs", force=False,
               retry_failed=False, preflight_only=False, smoke=False,
               nprocs=None, stop_on_error=False, verbose=False,
-              num_shards=1, shard_index=0):
+              num_shards=1, shard_index=0, plot_cli=None):
     """Process every dataset in ``manifest``; never stop on a single failure.
 
     For HPC job arrays, ``num_shards``/``shard_index`` make each task process a
@@ -403,7 +406,7 @@ def run_batch(manifest, state=None, logdir="fastrack_batch_logs", force=False,
 
         ds_log = os.path.join(logdir, "%s.log" % _safe(spec.name))
         LOGGER.info("  running -> %s  (detail log: %s)", spec.base_dir, ds_log)
-        status, error = _run_one(spec, nprocs, ds_log)
+        status, error = _run_one(spec, nprocs, ds_log, plot_cli)
         entry = {"status": status, "signature": sig, "base_dir": os.path.abspath(spec.base_dir),
                  "config": spec.config, "finished": _now(), "detail_log": ds_log}
         if error:
@@ -450,10 +453,10 @@ def _capture_fds(path):
         logf.close()
 
 
-def _run_one(spec, nprocs, ds_log):
+def _run_one(spec, nprocs, ds_log, plot_cli=None):
     """Run one dataset; capture its (chatty) output to ``ds_log``. Never raises."""
     try:
-        run_kwargs = _run_kwargs_for(spec)
+        run_kwargs = _run_kwargs_for(spec, plot_cli)
     except Exception as exc:
         return "failed", "config error: %s" % exc
     if nprocs is not None:

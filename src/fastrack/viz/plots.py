@@ -16,7 +16,8 @@ import matplotlib.cm as cm  # noqa: E402
 
 from scipy import stats  # noqa: E402
 
-from . import plotparams  # noqa: E402
+from . import plotparams  # noqa: E402  (get_figsize; no global rcParams any more)
+from .theme import as_theme  # noqa: E402
 from ..analysis import (  # noqa: E402
     coupling_velocity,
     fit_plateau,
@@ -47,37 +48,13 @@ def auto_velocity_limit(velocities, top_5_velocity=0.0, step=250.0, margin=1.1):
     return float(step * np.ceil(margin * top / step))
 
 
-# paths_2D colour schemes: colour stops, ink (scale bar / text), stuck-track
-# colour, background, and whether the scale is centred on the median velocity
-_PATH_SCHEMES = {
-    # pale blue (slow) -> navy (fast); pale end kept visible on white
-    "blue": dict(stops=["#bdd7ee", "#6baed6", "#2171b5", "#08306b"],
-                 ink="0.25", stuck="0.6", bg="white", centred=False),
-    # diverging, white = the movie's median track velocity: blue slower, red
-    # faster. Grey background so the white (typical) tracks stay visible.
-    "blue-red": dict(stops=["#08306b", "#2171b5", "#9ecae1", "#ffffff",
-                            "#fc9272", "#cb181d", "#67000d"],
-                     ink="0.15", stuck="0.4", bg="0.78", centred=True),
-}
+def paths_colormap(name="blue", theme=None):
+    """Colour scheme for paths_2D: dict(cmap, ink, stuck, background, centred).
 
-
-def paths_colormap(name="blue"):
-    """Colour scheme for paths_2D: dict(cmap, ink, stuck, bg, centred).
-
-    ``"blue"``: blue on white, grey stuck tracks. ``"blue-red"``: diverging
-    blue-white-red centred on the median track velocity, on light grey. Any
-    other name is a matplotlib colormap (e.g. ``"viridis"``) on white.
+    Schemes come from the theme's ``[colormaps]`` (``"blue"``, ``"blue-red"``
+    in the default theme); any other name is a matplotlib colormap.
     """
-    from matplotlib.colors import LinearSegmentedColormap
-    if name in _PATH_SCHEMES:
-        sc = dict(_PATH_SCHEMES[name])
-        sc["cmap"] = LinearSegmentedColormap.from_list("fastrack_" + name, sc.pop("stops"))
-        return sc
-    try:
-        cmap = matplotlib.colormaps[name]
-    except KeyError:
-        raise ValueError("unknown paths colormap %r" % name) from None
-    return dict(cmap=cmap, ink="k", stuck="0.6", bg="white", centred=False)
+    return as_theme(theme).scheme(name)
 
 
 def track_midpoints(path):
@@ -99,49 +76,154 @@ def make_N_colors(cmap_name, N):
     return cmap(np.arange(N))
 
 
+def _render_paths_2d_mpl(data, fx, labels, path):
+    """matplotlib renderer of paths_2D (velocity style) -> ``path``.<formats>."""
+    from matplotlib.collections import LineCollection
+    from matplotlib.colors import Normalize, TwoSlopeNorm
+
+    opt = fx.opt
+    scheme = fx.scheme(opt["colormap"])
+    cmap, ink, stuck_c = scheme["cmap"], scheme["ink"], scheme["stuck"]
+    tracks, vels, stuck_flags = data["tracks"], data["velocity"], data["stuck"]
+    vmax, v_mid = data["vmax"], data["v_median"]
+    W, H = data["width"], data["height"]
+    if scheme["centred"] and 0 < v_mid < vmax:
+        norm = TwoSlopeNorm(vcenter=v_mid, vmin=0, vmax=vmax)
+    else:
+        norm = Normalize(0, vmax)
+
+    # figure exactly the image's aspect, axes filling it: no margins; the
+    # colourbar sits outside and bbox_inches="tight" keeps it
+    fig_w = float(opt["width_in"])
+    fig = py.figure(figsize=(fig_w, fig_w * H / W))
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, W)
+    ax.set_ylim(H, 0)                                      # image orientation
+    ax.set_aspect("equal")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_facecolor(scheme["background"])
+    lw = float(opt["line_width"])
+    moving = [t for t, s_ in zip(tracks, stuck_flags) if not s_ and len(t) > 1]
+    moving_v = [v for v, s_, t in zip(vels, stuck_flags, tracks) if not s_ and len(t) > 1]
+    static = [t for t, s_ in zip(tracks, stuck_flags) if s_ and len(t) > 1]
+    if static:
+        ax.add_collection(LineCollection(static, colors=stuck_c, linewidths=lw))
+    if moving:
+        lc = LineCollection(moving, cmap=cmap, norm=norm, linewidths=lw)
+        lc.set_array(np.asarray(moving_v))
+        ax.add_collection(lc)
+    if opt["points"]:
+        # filament midpoint in each frame: small dots on the track
+        pts = [t for t in moving] + [t for t in static]
+        cols = [cmap(norm(v)) for v in moving_v] + [stuck_c] * len(static)
+        xy = np.concatenate(pts) if pts else np.zeros((0, 2))
+        c = np.concatenate([np.repeat(np.atleast_2d(matplotlib.colors.to_rgba(cc)), len(t), 0)
+                            for t, cc in zip(pts, cols)]) if pts else None
+        if c is not None:
+            c[:, :3] *= 0.6                                # a darker shade of the track
+        ax.scatter(xy[:, 0], xy[:, 1], s=3.5, c=c, linewidths=0, zorder=3)
+    # one arrowhead per moving track, at its latest point, along the motion
+    for t, v in zip(moving, moving_v):
+        d = t[-1] - t[-2]
+        if not np.any(d):
+            continue
+        ax.annotate("", xy=t[-1], xytext=t[-1] - 0.5 * d,
+                    arrowprops=dict(arrowstyle="-|>", color=cmap(norm(v)),
+                                    lw=lw, mutation_scale=9, shrinkA=0, shrinkB=0))
+    if labels:
+        for t, v in zip(tracks, vels):
+            c = t.mean(axis=0)
+            ax.text(c[0], c[1], "%.f" % v, fontsize=fx.fs(6), color="k")
+    scale_bar_um = opt["scale_bar_um"]
+    if scale_bar_um and data["dx"]:
+        bar_px = scale_bar_um * 1000.0 / data["dx"]
+        x0, y0 = 0.04 * W, 0.95 * H
+        ax.plot([x0, x0 + bar_px], [y0, y0], "-", color=ink, linewidth=4,
+                solid_capstyle="butt")
+        ax.text(x0 + bar_px / 2, y0 - 0.015 * H, "%g $\\mu$m" % scale_bar_um,
+                ha="center", va="bottom", fontsize=fx.fs(12), color=ink)
+    sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
+    cax = fig.add_axes([1.02, 0.15, 0.03, 0.7])
+    cb = fig.colorbar(sm, cax=cax)
+    cb.formatter.set_useOffset(False)
+    if np.any(vels > vmax):
+        # faster tracks share the top colour; say so on the top tick
+        ticks = matplotlib.ticker.MaxNLocator(5).tick_values(0, vmax)
+        ticks = [t for t in ticks if 0 <= t < vmax - 1e-9] + [vmax]
+        cb.set_ticks(ticks)
+        cb.set_ticklabels(["%g" % t for t in ticks[:-1]] + ["\u2265%g" % vmax])
+        cb.ax.set_ylim(0, vmax)
+    if isinstance(norm, TwoSlopeNorm):
+        # ticks on a two-slope bar: 0, the median (white), vmax
+        cb.set_ticks([0, v_mid, vmax])
+        top = ("\u2265%g" if np.any(vels > vmax) else "%g") % vmax
+        cb.set_ticklabels(["0", "%.0f\n(median)" % v_mid, top])
+    cb.set_label("Track velocity (median, nm/s)", fontsize=fx.fs(12))
+    cb.ax.tick_params(labelsize=fx.fs(10))
+    if len(static):
+        cax.text(0.5, -0.06, "grey: stuck", transform=cax.transAxes, ha="center",
+                 va="top", fontsize=fx.fs(10), color="0.45")
+    fx.save(fig, path, bbox_inches="tight")
+    py.close(fig)
+
+
 class MotilityPlots:
     """Plotting methods mixed into :class:`fastrack.core.motility.Motility`."""
 
-    def plot_2D_path_data(self, num_points, extra_fname=None, style="velocity",
-                          show_labels=False, scale_bar_um=10.0, colormap="blue",
-                          show_points=True):
+    def plot_2D_path_data(self, num_points, extra_fname=None, style=None,
+                          show_labels=None, scale_bar_um=None, colormap=None,
+                          show_points=None, theme=None):
         """Draw the tracks of all filaments followed for >= ``num_points`` links.
 
-        Writes ``<directory>/paths_2D.png`` (no labels) and, with
-        ``extra_fname``, ``<extra_fname>_2D.png`` (labels if ``show_labels``).
+        Writes ``<directory>/paths_2D.*`` (no labels) and, with ``extra_fname``,
+        ``<extra_fname>_2D.*`` (labels if ``labels``), in the theme's formats
+        (summary figure: PNG + PDF + SVG by default).
 
-        ``style="velocity"`` (default): one line per track through the
-        filament midpoints, coloured by the track's mean velocity (colourbar,
-        nm/s), stuck tracks in grey, one arrowhead at the latest position
-        pointing along the motion, a scale bar of ``scale_bar_um`` um (0 = none)
-        and no margins.  ``show_labels`` writes each track's mean velocity.
+        Options come from the theme's ``[figures.paths_2D]``; the keyword
+        arguments, when not ``None``, override them:
+
+        ``style="velocity"``: one line per track through the filament midpoints,
+        coloured by the track's median velocity (``colormap``), stuck tracks in
+        grey, dots at each frame's position (``show_points``), one arrowhead at
+        the latest position along the motion, a scale bar of ``scale_bar_um`` um
+        (0 = none) and no margins.  ``show_labels`` writes each track's velocity.
 
         ``style="legacy"``: the original FAST figure (arrows per step in an
         arbitrary qualitative palette, velocity numbers always on the
-        ``extra_fname`` copy).  Note its arrowheads point from the later to the
+        ``extra_fname`` copy).  Its arrowheads point from the later to the
         earlier position, i.e. against the motion.
         """
-        if style == "legacy":
-            return self._plot_2D_path_data_legacy(num_points, extra_fname=extra_fname)
-        if style != "velocity":
-            raise ValueError("paths style must be 'velocity' or 'legacy', got %r" % (style,))
-        return self._plot_2D_path_data_velocity(num_points, extra_fname=extra_fname,
-                                                show_labels=show_labels,
-                                                scale_bar_um=scale_bar_um,
-                                                colormap=colormap, show_points=show_points)
+        th = as_theme(theme)
+        with th.figure("paths_2D", style=style, labels=show_labels, scale_bar_um=scale_bar_um,
+                       colormap=colormap, points=show_points) as fx:
+            style = fx.opt["style"]
+            if style not in ("velocity", "legacy"):
+                raise ValueError("paths style must be 'velocity' or 'legacy', got %r" % (style,))
+            if style == "legacy":
+                self._paths2d_data = None
+                return self._plot_2D_path_data_legacy(num_points, extra_fname=extra_fname, fx=fx)
+            data = self.paths_2d_data(num_points)
+            self._paths2d_data, self._paths2d_colormap = data, fx.opt["colormap"]
+            if data is None or not fx.enabled:
+                return
+            _render_paths_2d_mpl(data, fx, False, self.directory + "/paths_2D")
+            if extra_fname is not None:
+                _render_paths_2d_mpl(data, fx, bool(fx.opt["labels"]), extra_fname + "_2D")
 
-    def _plot_2D_path_data_velocity(self, num_points, extra_fname=None, show_labels=False,
-                                    scale_bar_um=10.0, colormap="blue",
-                                    show_points=True):
-        from matplotlib.collections import LineCollection
-        from matplotlib.colors import Normalize
+    def paths_2d_data(self, num_points):
+        """Data step of paths_2D: per-track midpoints, median velocity, stuck flag.
 
+        Also fills ``self.path_data`` / ``self.path_stats`` (as the legacy plot
+        does; other code reads them).  Returns ``None`` when no track is long
+        enough, else a dict of plain arrays any renderer can use.
+        """
         filtered_paths = [x for x in self.paths if len(x.links) >= num_points]
         self.path_data, self.path_stats = [], []
         if len(filtered_paths) == 0:
-            return
+            return None
 
-        tracks, vels, stuck_flags = [], [], []
+        tracks, vels, stuck_flags, first = [], [], [], []
         for path in filtered_paths:
             links = path.links[::-1]                       # earliest link first
             xy = track_midpoints(path)
@@ -151,13 +233,13 @@ class MotilityPlots:
             # colour by the median: robust to the odd mislinked step, whose
             # instant velocity can be 100x the track's real speed
             track_v = 0.0 if stuck else float(np.median(vel_array))
-            # same bookkeeping as the legacy plot (other code may read these)
             self.path_data.append([links[0].frame1_no, stuck, vel_array])
             self.path_stats.append([links[0].frame1_no, stuck, len(path.links),
                                     np.mean(len_array), np.mean(vel_array), np.std(vel_array)])
             tracks.append(xy)
             vels.append(track_v)
             stuck_flags.append(stuck)
+            first.append(links[0].frame1_no)
         self.path_stats = np.array(self.path_stats)
         vels = np.asarray(vels)
         stuck_flags = np.asarray(stuck_flags)
@@ -166,97 +248,16 @@ class MotilityPlots:
         # (top tick reads ">= vmax") instead of compressing everything else
         mv = vels[(~stuck_flags) & np.isfinite(vels) & (vels > 0)]
         vmax = auto_velocity_limit([np.percentile(mv, 95)] if mv.size else [], 0.0, margin=1.0)
-        scheme = paths_colormap(colormap)
-        cmap, ink, stuck_c = scheme["cmap"], scheme["ink"], scheme["stuck"]
         v_mid = float(np.median(mv)) if mv.size else 0.5 * vmax
-        if scheme["centred"] and 0 < v_mid < vmax:
-            from matplotlib.colors import TwoSlopeNorm
-            norm = TwoSlopeNorm(vcenter=v_mid, vmin=0, vmax=vmax)
-        else:
-            norm = Normalize(0, vmax)
-        W, H = float(self.width), float(self.height)
+        return dict(tracks=tracks, velocity=vels, stuck=stuck_flags, first_frame=np.asarray(first),
+                    vmax=vmax, v_median=v_mid, width=float(self.width),
+                    height=float(self.height), dx=float(self.dx) if self.dx else 0.0)
 
-        def draw(labels, fname):
-            # figure exactly the image's aspect, axes filling it: no margins;
-            # the colourbar sits outside and bbox_inches="tight" keeps it
-            fig_w = 8.0
-            fig = py.figure(figsize=(fig_w, fig_w * H / W))
-            ax = fig.add_axes([0, 0, 1, 1])
-            ax.set_xlim(0, W)
-            ax.set_ylim(H, 0)                              # image orientation
-            ax.set_aspect("equal")
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_facecolor(scheme["bg"])
-            lw = 1.2
-            moving = [t for t, s_ in zip(tracks, stuck_flags) if not s_ and len(t) > 1]
-            moving_v = [v for v, s_, t in zip(vels, stuck_flags, tracks) if not s_ and len(t) > 1]
-            static = [t for t, s_ in zip(tracks, stuck_flags) if s_ and len(t) > 1]
-            if static:
-                ax.add_collection(LineCollection(static, colors=stuck_c, linewidths=lw))
-            if moving:
-                lc = LineCollection(moving, cmap=cmap, norm=norm, linewidths=lw)
-                lc.set_array(np.asarray(moving_v))
-                ax.add_collection(lc)
-            if show_points:
-                # filament midpoint in each frame: small dots on the track
-                pts = [t for t in moving] + [t for t in static]
-                cols = [cmap(norm(v)) for v in moving_v] + [stuck_c] * len(static)
-                xy = np.concatenate(pts) if pts else np.zeros((0, 2))
-                c = np.concatenate([np.repeat(np.atleast_2d(matplotlib.colors.to_rgba(cc)), len(t), 0)
-                                    for t, cc in zip(pts, cols)]) if pts else None
-                if c is not None:
-                    c[:, :3] *= 0.6                        # a darker shade of the track
-                ax.scatter(xy[:, 0], xy[:, 1], s=3.5, c=c, linewidths=0, zorder=3)
-            # one arrowhead per moving track, at its latest point, along the motion
-            for t, v in zip(moving, moving_v):
-                d = t[-1] - t[-2]
-                if not np.any(d):
-                    continue
-                ax.annotate("", xy=t[-1], xytext=t[-1] - 0.5 * d,
-                            arrowprops=dict(arrowstyle="-|>", color=cmap(norm(v)),
-                                            lw=lw, mutation_scale=9, shrinkA=0, shrinkB=0))
-            if labels:
-                for t, v in zip(tracks, vels):
-                    c = t.mean(axis=0)
-                    ax.text(c[0], c[1], "%.f" % v, fontsize=6, color="k")
-            if scale_bar_um and self.dx:
-                bar_px = scale_bar_um * 1000.0 / float(self.dx)
-                x0, y0 = 0.04 * W, 0.95 * H
-                ax.plot([x0, x0 + bar_px], [y0, y0], "-", color=ink, linewidth=4,
-                        solid_capstyle="butt")
-                ax.text(x0 + bar_px / 2, y0 - 0.015 * H, "%g $\\mu$m" % scale_bar_um,
-                        ha="center", va="bottom", fontsize=12, color=ink)
-            sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
-            cax = fig.add_axes([1.02, 0.15, 0.03, 0.7])
-            cb = fig.colorbar(sm, cax=cax)
-            cb.formatter.set_useOffset(False)
-            if np.any(vels > vmax):
-                # faster tracks share the top colour; say so on the top tick
-                ticks = matplotlib.ticker.MaxNLocator(5).tick_values(0, vmax)
-                ticks = [t for t in ticks if 0 <= t < vmax - 1e-9] + [vmax]
-                cb.set_ticks(ticks)
-                cb.set_ticklabels(["%g" % t for t in ticks[:-1]] + ["\u2265%g" % vmax])
-                cb.ax.set_ylim(0, vmax)
-            if isinstance(norm, matplotlib.colors.TwoSlopeNorm):
-                # ticks on a two-slope bar: 0, the median (white), vmax
-                cb.set_ticks([0, v_mid, vmax])
-                top = ("\u2265%g" if np.any(vels > vmax) else "%g") % vmax
-                cb.set_ticklabels(["0", "%.0f\n(median)" % v_mid, top])
-            cb.set_label("Track velocity (median, nm/s)", fontsize=12)
-            cb.ax.tick_params(labelsize=10)
-            if len(static):
-                cax.text(0.5, -0.06, "grey: stuck", transform=cax.transAxes, ha="center",
-                         va="top", fontsize=10, color="0.45")
-            fig.savefig(fname, dpi=300, bbox_inches="tight", pad_inches=0.05)
-            py.close(fig)
-
-        draw(False, self.directory + "/paths_2D.png")
-        if extra_fname is not None:
-            draw(show_labels, extra_fname + "_2D.png")
-
-    def _plot_2D_path_data_legacy(self, num_points, extra_fname=None):
+    def _plot_2D_path_data_legacy(self, num_points, extra_fname=None, fx=None):
         """The original FAST paths figure, unchanged (``style="legacy"``)."""
+        if fx is None:
+            with as_theme(None).figure("paths_2D", style="legacy") as fx:
+                return self._plot_2D_path_data_legacy(num_points, extra_fname, fx)
         ratio = self.width / 1002.0
 
         self.path_data = []
@@ -271,10 +272,10 @@ class MotilityPlots:
 
         path_colors = make_N_colors("Accent", len(filtered_paths))
 
-        py.figure(2000)
+        fig_a = py.figure(2000)
         py.imshow(self.path_img, cmap=cm.gray, alpha=1.0)
 
-        py.figure(2001)
+        fig_b = py.figure(2001)
         py.imshow(self.path_img, cmap=cm.gray, alpha=1.0)
 
         for i in range(len(filtered_paths)):
@@ -323,59 +324,44 @@ class MotilityPlots:
                 mp_x2 = path.links[j].filament2_midpoint[1]
                 mp_y2 = path.links[j].filament2_midpoint[0]
 
-                py.figure(2000)
-                py.arrow(
-                    mp_x2,
-                    mp_y2,
-                    mp_x1 - mp_x2,
-                    mp_y1 - mp_y2,
-                    color=path_colors[i],
-                    head_width=ratio * 5,
-                    head_length=ratio * 10,
-                    alpha=1.0,
-                )
-
-                py.figure(2001)
-                py.arrow(
-                    mp_x2,
-                    mp_y2,
-                    mp_x1 - mp_x2,
-                    mp_y1 - mp_y2,
-                    color=path_colors[i],
-                    head_width=ratio * 5,
-                    head_length=ratio * 10,
-                    alpha=1.0,
-                )
+                for fignum in (2000, 2001):
+                    py.figure(fignum)
+                    py.arrow(
+                        mp_x2,
+                        mp_y2,
+                        mp_x1 - mp_x2,
+                        mp_y1 - mp_y2,
+                        color=path_colors[i],
+                        head_width=ratio * 5,
+                        head_length=ratio * 10,
+                        alpha=1.0,
+                    )
 
             py.figure(2001)
-            py.text(mp_mean[0], mp_mean[1], "%.f" % (mean_velocity), fontsize=10, color="k")
+            py.text(mp_mean[0], mp_mean[1], "%.f" % (mean_velocity), fontsize=fx.fs(10),
+                    color="k")
 
         self.path_stats = np.array(self.path_stats)
 
-        py.figure(2000)
-        ax = py.gca()
-        ax.xaxis.set_visible(False)
-        ax.yaxis.set_visible(False)
-        py.savefig(self.directory + "/paths_2D.png", dpi=400, transparent=False)
-
-        py.figure(2001)
-        ax = py.gca()
-        ax.xaxis.set_visible(False)
-        ax.yaxis.set_visible(False)
-
-        if extra_fname is not None:
-            py.figure(2001)
-            py.savefig(extra_fname + "_2D.png", dpi=400, transparent=False)
+        dpi = fx.opt.get("legacy_dpi", 400)
+        for f in (fig_a, fig_b):
+            ax = f.gca()
+            ax.xaxis.set_visible(False)
+            ax.yaxis.set_visible(False)
+        if fx.enabled:
+            fx.save(fig_a, self.directory + "/paths_2D", dpi=dpi, transparent=False,
+                    pad_inches=0.1)
+            if extra_fname is not None:
+                fx.save(fig_b, extra_fname + "_2D", dpi=dpi, transparent=False, pad_inches=0.1)
 
         py.close("all")
         return self.path_data
-
 
     def plot_length_velocity(
         self,
         header="",
         extra_fname=None,
-        max_vel=0,
+        max_vel=None,
         max_length=10000,
         nbins=30,
         min_points=2,
@@ -384,15 +370,16 @@ class MotilityPlots:
         percent_tolerance=500,
         print_plot=True,
         minimal_plot=False,
-        maxvel_color="b",
+        maxvel_color=None,
         plot_xlabels=True,
         plot_ylabels=True,
         square_plot=True,
         plot_length_f=False,
         fit_f="exp",
-        dpi_plot=200,
-        label_position="bottom",
-        label_units=False,
+        dpi_plot=None,
+        label_position=None,
+        label_units=None,
+        theme=None,
     ):
         """Compute velocity statistics and (optionally) render the length-velocity plot.
 
@@ -411,7 +398,21 @@ class MotilityPlots:
         ``max_vel`` is the velocity axis limit (nm/s) of the figure; 0 or None
         picks it from the data (see :func:`auto_velocity_limit`).  It only
         affects the figure, not the returned statistics.
+
+        Figure options (``max_vel`` = ``ymax``, ``label_position``,
+        ``label_units``, ``dpi_plot`` = ``dpi``, ``maxvel_color``) default to the
+        theme's ``[figures.length_velocity]`` / ``[colors]``; arguments that are
+        not ``None`` override them.  ``max_length`` is a statistics cut, not a
+        figure option, so it is not taken from the theme.
         """
+        th = as_theme(theme)
+        fig_over = dict(ymax=max_vel, label_position=label_position, label_units=label_units,
+                        dpi=dpi_plot)
+        opt = th.options("length_velocity", **fig_over)
+        max_vel, label_position = opt["ymax"], opt["label_position"]
+        label_units, dpi_plot = bool(opt["label_units"]), opt["dpi"]
+        if maxvel_color is None:
+            maxvel_color = th.color("maxvel")
         if label_position not in ("top", "bottom"):
             raise ValueError("label_position must be 'top' or 'bottom', got %r" % (label_position,))
         valid = np.nonzero(self.full_len_vel[:, 0] < max_length)[0]
@@ -463,7 +464,7 @@ class MotilityPlots:
             self.full_len_vel[:, 0]
         )
 
-        text_font_size = 30
+        text_font_size = opt["text_font_size"]
 
         valid_filtered = np.nonzero(
             (self.full_len_vel[:, 1] > 0)
@@ -563,8 +564,10 @@ class MotilityPlots:
         else:
             tolerance_string = str(percent_tolerance)
 
-        if print_plot:
-            self._render_length_velocity_plot(
+        if print_plot and th.enabled("length_velocity"):
+            with th.figure("length_velocity", **fig_over) as fx:
+                self._render_length_velocity_plot(
+                fx=fx,
                 header=header,
                 extra_fname=extra_fname,
                 minimal_plot=minimal_plot,
@@ -573,7 +576,6 @@ class MotilityPlots:
                 plot_ylabels=plot_ylabels,
                 plot_length_f=plot_length_f,
                 fit_f=fit_f,
-                dpi_plot=dpi_plot,
                 max_vel=max_vel,
                 max_length=max_length,
                 maxvel_color=maxvel_color,
@@ -601,7 +603,7 @@ class MotilityPlots:
                 max_vel_u_se=max_vel_u_se,
                 mean_len_se=mean_len_se,
                 label_units=label_units,
-            )
+                )
 
         if fit_f != "none":
             return (
@@ -634,6 +636,8 @@ class MotilityPlots:
     def _render_length_velocity_plot(self, **kw):
         """Render the length-velocity figure.  Isolated so a plotting failure
         cannot corrupt the numeric statistics returned to the caller."""
+        fx = kw["fx"]
+        moving_c = fx.color("moving")
         header = kw["header"]
         label_position = kw.get("label_position", "bottom")
         max_vel_u_se = kw.get("max_vel_u_se", np.nan)
@@ -646,7 +650,6 @@ class MotilityPlots:
         plot_ylabels = kw["plot_ylabels"]
         plot_length_f = kw["plot_length_f"]
         fit_f = kw["fit_f"]
-        dpi_plot = kw["dpi_plot"]
         max_vel = kw["max_vel"]
         max_length = kw["max_length"]
         maxvel_color = kw["maxvel_color"]
@@ -669,10 +672,10 @@ class MotilityPlots:
         max_vel_u = kw["max_vel_u"]
         max_vel_tau = kw["max_vel_tau"]
         max_vel_r = kw["max_vel_r"]
-        text_font_size = kw["text_font_size"]
+        text_font_size = fx.fs(kw["text_font_size"])
 
         if minimal_plot:
-            text_font_size = 55
+            text_font_size = fx.fs(55)
             linewidth = 10
 
             if fit_f == "exp":
@@ -688,7 +691,7 @@ class MotilityPlots:
             else:
                 py.figure(0, figsize=(x, y))
 
-            py.plot(1e-3 * fil_len, fil_vel, ".", markersize=10, color="gray")
+            py.plot(1e-3 * fil_len, fil_vel, ".", markersize=10, color=moving_c)
             py.plot(
                 1e-3 * self.max_len_vel[max_valid, 0],
                 self.max_len_vel[max_valid, 1],
@@ -823,7 +826,7 @@ class MotilityPlots:
             axTolerance2.set_yticklabels(["%.1f" % (v * 1e-3) for v in vel_ticks])
 
             axTolerance2.annotate(r"$x10^3$", xy=(1, 1), xycoords="axes fraction", xytext=(6, 8),
-                                  textcoords="offset points", ha="left", va="bottom", fontsize=25)
+                                  textcoords="offset points", ha="left", va="bottom", fontsize=fx.fs(25))
 
             py.setp(axTolerance2.get_yticklabels(), fontsize=text_font_size, visible=True)
             py.setp(axTolerance2.get_xticklabels(), fontsize=text_font_size, visible=True)
@@ -840,7 +843,7 @@ class MotilityPlots:
                 bins=l_bin_edges,
                 density=False,
                 orientation="vertical",
-                color="gray",
+                color=moving_c,
                 edgecolor="k",
                 linewidth=0.6,
             )
@@ -851,7 +854,7 @@ class MotilityPlots:
                 bins=v_bin_edges,
                 density=True,
                 orientation="horizontal",
-                color="gray",
+                color=moving_c,
                 edgecolor="k",
                 linewidth=0.6,
             )
@@ -862,13 +865,13 @@ class MotilityPlots:
                 bins=v_bin_edges,
                 density=True,
                 orientation="horizontal",
-                color="gray",
+                color=moving_c,
                 edgecolor="k",
                 linewidth=0.6,
             )
             max_prob_t = axHisty1.get_xlim()[1]
 
-            axScatter.plot(1e-3 * fil_len, fil_vel, ".", markersize=5, color="gray")
+            axScatter.plot(1e-3 * fil_len, fil_vel, ".", markersize=5, color=moving_c)
             axScatter.plot(
                 1e-3 * self.max_len_vel[max_valid, 0],
                 self.max_len_vel[max_valid, 1],
@@ -923,7 +926,7 @@ class MotilityPlots:
 
             # axis multiplier, lifted a little off the axis line
             axScatter.annotate(r"$x10^3$", xy=(0, 1), xycoords="axes fraction", xytext=(0, 8),
-                               textcoords="offset points", ha="left", va="bottom", fontsize=25)
+                               textcoords="offset points", ha="left", va="bottom", fontsize=fx.fs(25))
 
             axScatter.set_ylim([0, max_vel])
             axScatter.set_xlim([0, max_length * 1e-3])
@@ -1057,14 +1060,19 @@ class MotilityPlots:
         # bbox_inches="tight": grow the saved image to include every label and
         # annotation (axis labels and the x10^3 markers sit outside the axes and
         # were cut off at the figure edge)
-        py.savefig(self.directory + "/" + header + "length_velocity.png", dpi=dpi_plot,
-                   transparent=False, bbox_inches="tight", pad_inches=0.3)
+        fig = py.gcf()
+        fx.save(fig, self.directory + "/" + header + "length_velocity", transparent=False,
+                bbox_inches="tight")
         if extra_fname is not None:
-            py.savefig(extra_fname, dpi=dpi_plot, transparent=False,
-                       bbox_inches="tight", pad_inches=0.3)
+            fx.save(fig, extra_fname, transparent=False, bbox_inches="tight")
         py.close()
 
-    def plot_correlation_profile(self, extra_fname=None):
+    def plot_correlation_profile(self, extra_fname=None, theme=None):
+        th = as_theme(theme)
+        with th.figure("correlation_length") as fx:
+            return self._plot_correlation_profile(extra_fname, fx)
+
+    def _plot_correlation_profile(self, extra_fname, fx):
         py.figure(4, figsize=plotparams.get_figsize(1080))
 
         array_corr_len = np.arange(len(self.final_corr_len)) * self.dx
@@ -1081,7 +1089,7 @@ class MotilityPlots:
         py.subplot(211)
         py.plot(array_corr_len, 1.0 * self.final_corr_len, "bo")
         py.plot(array_corr_len, array_corr_len * slope + intercept, "r-", linewidth=5)
-        py.text(1500, 0.9, r"l$_{0.7}$: %d" % (length_0_7), fontsize=50)
+        py.text(1500, 0.9, r"l$_{0.7}$: %d" % (length_0_7), fontsize=fx.fs(50))
         py.xlim(0, 3000)
         py.ylim(0.7, 1.0)
         py.ylabel(r"c($\Delta$ nm)")
@@ -1093,9 +1101,10 @@ class MotilityPlots:
         py.ylabel(r"weight (#)")
         py.xlim(0, self.max_fil_length * self.dx)
 
-        py.savefig(self.directory + "/correlation_length.png", dpi=200)
-        if extra_fname is not None:
-            py.savefig(extra_fname, dpi=200)
+        if fx.enabled:
+            fx.save(py.gcf(), self.directory + "/correlation_length")
+            if extra_fname is not None:
+                fx.save(py.gcf(), extra_fname)
         py.close()
 
         return length_0_7, mean_corr_1500

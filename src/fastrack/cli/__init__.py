@@ -63,6 +63,33 @@ def _add_preprocess_args(parser, S=argparse.SUPPRESS):
                    help="upper percentile mapped to full scale (Default: 99.9)")
 
 
+def _add_plot_args(parser):
+    """Figure options shared by every pipeline (see docs/plotting.md)."""
+    g = parser.add_argument_group("figures (plot theme; see docs/plotting.md)")
+    g.add_argument("--theme", default=None, metavar="NAME|FILE.toml",
+                   help="plot theme: default, legacy (original FAST look), paper, or a .toml file")
+    g.add_argument("--plot", action="append", default=[], metavar="KEY=VALUE",
+                   help="override a theme value, repeatable: <figure>.<option>=value "
+                        "(paths_2D.colormap=blue-red), rc.<rcParam>=value (rc.font.size=12), "
+                        "colors.<name>=value, output.summary='[\"png\"]'")
+    g.add_argument("--plot-formats", nargs="+", default=None, metavar="FMT",
+                   help="formats of the summary figures, e.g. png pdf svg (Default: theme)")
+    g.add_argument("--skip-plot", action="append", default=[], metavar="FIGURE",
+                   help="don't write this figure (repeatable), e.g. paths_2D")
+
+
+def _apply_plot_args(settings, args):
+    return settings.with_plot_overrides(args.plot, theme=args.theme,
+                                        formats=args.plot_formats, skip=args.skip_plot)
+
+
+def _plot_spec_from_args(args, config_files=()):
+    """Plot spec for pipelines without a Settings object (lima, fast-preview)."""
+    from ..config import Settings
+    settings = Settings.from_toml(*config_files) if config_files else Settings()
+    return _apply_plot_args(settings, args).plot_spec()
+
+
 #: fastplus-only argparse dests -> flat DirectionalSettings field names.
 _PLUS_CLI_TO_FIELD = {
     "mode": "mode", "head_channel": "head_channel",
@@ -183,6 +210,7 @@ def fast_main(argv=None):
     parser.add_argument("--overlay-font-scale", type=float, default=S, dest="overlay_font_scale",
                         help="overlay label font scale (Default:0.6)")
     _add_preprocess_args(parser)
+    _add_plot_args(parser)
     parser.add_argument("-v", action="store_true", default=S, help="verbose output for debugging")
     args = parser.parse_args(argv)
 
@@ -193,7 +221,7 @@ def fast_main(argv=None):
 
     overrides = {_CLI_TO_FIELD[dest]: val for dest, val in vars(args).items()
                  if dest in _CLI_TO_FIELD}
-    settings = settings.with_overrides(**overrides)
+    settings = _apply_plot_args(settings.with_overrides(**overrides), args)
 
     from ..pipelines import gliding
     gliding.run(main_dir=args.d, **settings.to_run_kwargs())
@@ -219,6 +247,9 @@ def lima_main(argv=None):
     parser.add_argument("-r", default=True, action="store_false", help="print fit parameters")
     parser.add_argument("-g", default=None, nargs="*", type=float, help="initial guess for the parameters to be fitted")
     parser.add_argument("-cl", nargs="*", default=None, type=str, help="plotting colors")
+    parser.add_argument("--config", nargs="*", default=[], metavar="FILE.toml",
+                        help="TOML config file(s); only the [plotting] section is used")
+    _add_plot_args(parser)
     args = parser.parse_args(argv)
 
     from ..pipelines import loaded
@@ -232,6 +263,7 @@ def lima_main(argv=None):
         print_params=args.r,
         init_params=args.g,
         colors=args.cl,
+        theme=_plot_spec_from_args(args, args.config),
     )
 
 
@@ -295,6 +327,7 @@ def fast_batch_main(argv=None):
     parser.add_argument("--shard-index", default=0, type=int,
                         help="0-based slice this invocation should process (with --num-shards)")
     parser.add_argument("-v", "--verbose", action="store_true", help="verbose console output")
+    _add_plot_args(parser)
     args = parser.parse_args(argv)
 
     from ..pipelines import batch
@@ -311,6 +344,8 @@ def fast_batch_main(argv=None):
         verbose=args.verbose,
         num_shards=args.num_shards,
         shard_index=args.shard_index,
+        plot_cli=dict(items=args.plot, theme=args.theme, formats=args.plot_formats,
+                      skip=args.skip_plot),
     )
 
 
@@ -464,6 +499,7 @@ def fastplus_main(argv=None):
                         ">1 runs per-frame detection serially; peak memory scales "
                         "with this count. Best for many small movies. (Default: 1)")
     _add_preprocess_args(p)
+    _add_plot_args(p)
     p.add_argument("-v", action="store_true", default=S, dest="v", help="verbose output")
     args = p.parse_args(argv)
 
@@ -482,7 +518,7 @@ def fastplus_main(argv=None):
         overrides["frame_rate_hz"] = 1.0 / args.spf
     elif getattr(args, "frame_rate_hz", None):
         overrides["frame_rate_hz"] = args.frame_rate_hz
-    settings = settings.with_overrides(**overrides)
+    settings = _apply_plot_args(settings.with_overrides(**overrides), args)
 
     # run-only knobs (not Settings fields) passed straight through
     run_only = {k: getattr(args, k) for k in
@@ -537,7 +573,8 @@ def fast_preview_main(argv=None):
     parser.add_argument("--config", nargs="*", default=[], metavar="FILE.toml",
                         help="TOML config: [hardware], [analysis] stuck velocity, "
                              "[ridge] and [preprocess] values override the preview "
-                             "defaults")
+                             "defaults; [plotting] styles the dashboard")
+    _add_plot_args(parser)
     args = parser.parse_args(argv)
 
     from ..pipelines import preview
@@ -568,6 +605,7 @@ def fast_preview_main(argv=None):
     if not args.no_save:
         name = os.path.basename(os.path.abspath(args.path).rstrip(os.sep))
         out = args.out or os.path.join("outputs", "preview", name)
-    preview.run(args.path, settings=s, out_dir=out, plot=not args.no_plot)
+    preview.run(args.path, settings=s, out_dir=out, plot=not args.no_plot,
+                theme=_plot_spec_from_args(args, args.config))
     if out:
         print("\nreports: %s" % out)

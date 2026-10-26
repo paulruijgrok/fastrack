@@ -1,0 +1,17 @@
+# Starting point for publication figures: vector output only, units on the
+# length-velocity labels, editable text in the PDF / SVG files.
+# Font sizes and figure sizes will be tuned in the styling pass; override them
+# here or in [plotting.rc] / [plotting.tokens] of a run config.
+
+extends = "default"
+name = "paper"
+
+[output]
+summary = ["pdf", "svg"]
+diagnostic = ["png"]
+
+[figures.length_velocity]
+label_units = true
+
+[figures.paths_2D]
+colormap = "blue"

@@ -52,15 +52,38 @@ class AnalysisSettings:
 
 @dataclass
 class PlottingSettings:
-    ymax: int = 0                     # plot velocity limit (nm/s); 0 = from the data
-    xmax: int = 10000
-    maxvel_color: str = "b"
-    label_position: str = "bottom"    # length-velocity value labels: "bottom" | "top"
-    paths_style: str = "velocity"     # paths_2D figure: "velocity" | "legacy" (original)
-    paths_labels: bool = False        # paths_2D: write each track's mean velocity
-    scale_bar_um: float = 10.0        # paths_2D scale bar length (um); 0 = none
-    paths_points: bool = True         # paths_2D: dot at the filament position in each frame
-    paths_colormap: str = "blue"      # paths_2D colours: "blue", "blue-red" or a matplotlib name
+    """Figures: theme + overrides.  See docs/plotting.md.
+
+    In a TOML config, besides the keys below, ``[plotting.rc]``,
+    ``[plotting.tokens]``, ``[plotting.colors]``, ``[plotting.colormaps]``,
+    ``[plotting.output]`` and ``[plotting.<figure>]`` (e.g.
+    ``[plotting.paths_2D]``) override the theme; they are collected in
+    ``overrides``.
+    """
+    theme: str = "default"            # built-in name (default | legacy | paper) or a .toml path
+    formats: Any = None               # summary-figure formats, e.g. ["png", "pdf"]; None = theme
+    skip: Any = field(default_factory=list)       # figure names not to write
+    overrides: Dict[str, Any] = field(default_factory=dict)   # theme-shaped overrides
+    xmax: int = 10000                 # longest filament (nm) in the length-velocity statistics
+
+
+#: flat [plotting] keys from before the theme system -> theme override path
+PLOT_ALIASES = {
+    "ymax": ("figures", "length_velocity", "ymax"),
+    "maxvel_color": ("colors", "maxvel"),
+    "label_position": ("figures", "length_velocity", "label_position"),
+    "paths_style": ("figures", "paths_2D", "style"),
+    "paths_labels": ("figures", "paths_2D", "labels"),
+    "scale_bar_um": ("figures", "paths_2D", "scale_bar_um"),
+    "paths_points": ("figures", "paths_2D", "points"),
+    "paths_colormap": ("figures", "paths_2D", "colormap"),
+}
+_PLOT_TABLES = ("rc", "tokens", "colors", "colormaps", "output", "bokeh")
+
+
+def _plot_figure_names():
+    from .viz.figures import FIGURES
+    return set(FIGURES)
 
 
 @dataclass
@@ -237,6 +260,46 @@ _SECTIONS = {
 }
 
 
+def _route_plot_key(plotting: Dict[str, Any], key: str, value: Any) -> bool:
+    """Put nested [plotting.*] tables into ``overrides``; warn on old flat keys.
+
+    Returns True when the key was handled here.
+    """
+    import warnings
+    from .viz.theme import deep_merge
+    if key == "overrides" and isinstance(value, Mapping):
+        plotting["overrides"] = deep_merge(plotting.get("overrides", {}), value)
+        return True
+    if isinstance(value, Mapping) and key in _PLOT_TABLES:
+        plotting["overrides"] = deep_merge(plotting.get("overrides", {}), {key: value})
+        return True
+    if isinstance(value, Mapping):
+        if key not in _plot_figure_names():
+            raise KeyError("Unknown plotting table [plotting.%s] (figures: %s)"
+                           % (key, ", ".join(sorted(_plot_figure_names()))))
+        plotting["overrides"] = deep_merge(plotting.get("overrides", {}),
+                                           {"figures": {key: value}})
+        return True
+    if key in PLOT_ALIASES:
+        path = PLOT_ALIASES[key]
+        warnings.warn("[plotting] %s is deprecated; use [plotting.%s] %s"
+                      % (key, ".".join(path[1:-1]) if path[0] == "figures" else path[0],
+                         path[-1]), DeprecationWarning, stacklevel=4)
+        plotting["overrides"] = deep_merge(plotting.get("overrides", {}), _alias_tree(key, value))
+        return True
+    return False
+
+
+def _alias_tree(key: str, value: Any) -> Dict[str, Any]:
+    tree: Dict[str, Any] = {}
+    node = tree
+    path = PLOT_ALIASES[key]
+    for p in path[:-1]:
+        node = node.setdefault(p, {})
+    node[path[-1]] = value
+    return tree
+
+
 @dataclass
 class Settings:
     hardware: HardwareSettings = field(default_factory=HardwareSettings)
@@ -268,10 +331,29 @@ class Settings:
                     raise KeyError("Unknown settings section: %r" % section)
                 valid = {f.name for f in fields(_SECTIONS[section])}
                 for key, value in dict(values).items():
+                    if section == "plotting" and _route_plot_key(merged["plotting"], key, value):
+                        continue
                     if key not in valid:
                         raise KeyError("Unknown %s setting: %r" % (section, key))
                     merged[section][key] = value
         return cls(**{name: _SECTIONS[name](**vals) for name, vals in merged.items()})
+
+    def with_plot_overrides(self, items=(), theme=None, formats=None, skip=()) -> "Settings":
+        """Copy with CLI plot options: ``items`` like ``"paths_2D.colormap=blue-red"``."""
+        from .viz.theme import deep_merge, parse_override
+        pl = self.plotting
+        ov = deep_merge(pl.overrides, *[parse_override(i) for i in items or ()])
+        new = replace(pl, overrides=ov,
+                      theme=theme if theme else pl.theme,
+                      formats=list(formats) if formats else pl.formats,
+                      skip=list(pl.skip or []) + [s for s in skip or () if s not in (pl.skip or [])])
+        return replace(self, plotting=new)
+
+    def plot_spec(self) -> Dict[str, Any]:
+        """The plotting settings as the spec :func:`fastrack.viz.theme.load_theme` takes."""
+        pl = self.plotting
+        return {"theme": pl.theme, "formats": pl.formats, "skip": list(pl.skip or []),
+                "overrides": dict(pl.overrides)}
 
     def with_overrides(self, **flat: Any) -> "Settings":
         """Return a copy with flat ``field=value`` overrides.
@@ -285,12 +367,20 @@ class Settings:
             for f in fields(sect_cls):
                 index[f.name] = name
         updates: Dict[str, Dict[str, Any]] = {name: {} for name in _SECTIONS}
+        plot_ov: Dict[str, Any] = {}
         for key, value in flat.items():
             if value is None:
+                continue
+            if key in PLOT_ALIASES:                # CLI shortcuts (-ymax, -cl, ...)
+                from .viz.theme import deep_merge
+                plot_ov = deep_merge(plot_ov, _alias_tree(key, value))
                 continue
             if key not in index:
                 raise KeyError("Unknown setting: %r" % key)
             updates[index[key]][key] = value
+        if plot_ov:
+            from .viz.theme import deep_merge
+            updates["plotting"]["overrides"] = deep_merge(self.plotting.overrides, plot_ov)
         new_sections = {
             name: replace(getattr(self, name), **updates[name]) for name in _SECTIONS
         }
@@ -336,15 +426,8 @@ class Settings:
             "legacy_linking": an.legacy_linking,
             "fast_rank": an.fast_rank,
             "morph_contrast": an.morph_contrast,
-            "plot_ymax": pl.ymax,
             "plot_xmax": pl.xmax,
-            "maxvel_color": pl.maxvel_color,
-            "label_position": pl.label_position,
-            "paths_style": pl.paths_style,
-            "paths_labels": pl.paths_labels,
-            "scale_bar_um": pl.scale_bar_um,
-            "paths_colormap": pl.paths_colormap,
-            "paths_points": pl.paths_points,
+            "plotting": self.plot_spec(),
             "force_analysis": rt.force_analysis,
             "recalculate": rt.recalculate,
             "make_movie": rt.make_movie,
@@ -386,6 +469,7 @@ class Settings:
             "preprocess": params_from_settings(self.preprocess),
             "nprocs": rt.nprocs,
             "verbose": rt.verbose,
+            "plotting": self.plot_spec(),
         }
         kw.update(asdict(dr))
         return kw

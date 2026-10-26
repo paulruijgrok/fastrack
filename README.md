@@ -69,7 +69,7 @@ src/fastrack/
 │   └── input/           # movie input adapters (micro-manager dirs, TIFF stacks)
 ├── analysis/            # fitting, velocity metrics, geometry (pure numeric)
 ├── io/                  # images, stores (npy/npz), export (csv), movie (ffmpeg)
-├── viz/                 # plotparams + the length-velocity / 2D-path plots
+├── viz/                 # plot themes (themes/*.toml), figure catalogue, the plots
 ├── pipelines/           # gliding (the `fast` driver), loaded (LIMA), batch
 └── cli/                 # console entry points: fast, lima, stack2tifs, fast-batch, fast-preview
 ```
@@ -430,6 +430,23 @@ A fully-commented `config.example.toml` at the repo root lists every section
 `[overlay]`)
 and key. Only the keys you set are applied; the rest keep their defaults. TOML
 config requires Python 3.11+.
+
+### Figures and plot themes
+
+All figures take their look from one master stylesheet, a TOML theme
+(`default`, `legacy` = the original FAST look, `paper`, or your own file), which
+`[plotting.*]` in a config and `--plot key=value` on the command line can
+override per figure. Summary figures (length-velocity, paths, LIMA, fastplus
+frame average) are written as **PNG + PDF + SVG**; each output folder gets a
+`figures.json` index of the figures written.
+
+```bash
+fast -d <dataset> --theme legacy
+fast -d <dataset> --plot paths_2D.colormap=blue-red --plot-formats png pdf
+```
+
+Themes, every figure and its options, and how to add a figure:
+**[docs/plotting.md](docs/plotting.md)**.
 
 The dominant per-frame cost is the two radius-15 local percentile filters in
 `entropy_clusters` (and `check_picture_quality`). scikit-image rank filters keep

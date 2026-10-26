@@ -30,15 +30,30 @@ fast_rank = true
 morph_contrast = false
 
 [plotting]
-ymax = 0                              # plot velocity limit (nm/s); 0 = from the data
-xmax = 10000
-maxvel_color = "b"
-label_position = "bottom"             # length-velocity value labels: "bottom" or "top"
-paths_style = "velocity"              # paths_2D: tracks coloured by velocity; "legacy" = original
-paths_labels = false                  # paths_2D: write each track's mean velocity (nm/s)
-scale_bar_um = 10                     # paths_2D scale bar (um); 0 = none
-paths_points = true                   # paths_2D: dot at the filament position in each frame
-paths_colormap = "blue"               # paths_2D: "blue", "blue-red" (white = median, on grey) or a matplotlib name
+# Figures take their look from a theme (src/fastrack/viz/themes/*.toml):
+# "default", "legacy" (original FAST look), "paper", or a path to your own
+# .toml that starts with  extends = "default".  See docs/plotting.md.
+theme = "default"
+# formats = ["png", "pdf", "svg"]     # summary figures (default: from the theme)
+# skip = ["paths_2D"]                 # figures not to write
+xmax = 10000                          # longest filament (nm) in the length-velocity statistics
+
+# Any theme value can be overridden here, per figure or globally:
+[plotting.length_velocity]
+ymax = 0                              # velocity axis limit (nm/s); 0 = from the data
+label_position = "bottom"             # value labels: "bottom" or "top"
+
+[plotting.paths_2D]
+style = "velocity"                    # tracks coloured by velocity; "legacy" = original figure
+colormap = "blue"                     # "blue", "blue-red" (white = median, on grey) or a matplotlib name
+points = true                         # dot at the filament position in each frame
+labels = false                        # write each track's velocity (nm/s)
+scale_bar_um = 10                     # 0 = none
+
+# [plotting.rc]                       # matplotlib rcParams for every figure
+# "font.size" = 12
+# [plotting.colors]
+# stuck = "0.5"
 
 [runtime]
 make_movie = false

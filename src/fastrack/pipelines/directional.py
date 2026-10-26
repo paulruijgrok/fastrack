@@ -380,7 +380,8 @@ def _process_one_movie(task: dict) -> dict:
             fil_by_frame = {i: fl for i, fl in enumerate(filament_frames)}
             save_classification_montage(
                 head_stack, polar_by_frame, os.path.join(mdir, "qc_overlay.png"),
-                max_frames=t["montage_frames"], filament_by_frame=fil_by_frame)
+                max_frames=t["montage_frames"], filament_by_frame=fil_by_frame,
+                theme=t.get("plotting"))
             save_overlay_movie(
                 head_stack, polar_by_frame, os.path.join(mdir, "qc_overlay.mp4"),
                 fps=t["overlay_fps"], filament_by_frame=fil_by_frame)
@@ -439,7 +440,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
         force_analysis=False, recalculate=False, nprocs=None, verbose=False,
         parallel_movies=1, limit=None, max_frames=None, frame_step=1,
         overlay=False, overlay_fps=10, montage_frames=12,
-        output_dir=None, preprocess=None, **_ignored):
+        output_dir=None, preprocess=None, plotting=None, **_ignored):
     """Directional analysis over every ``*RGB.tif`` movie under ``main_dir``.
 
     Collects per-frame signed velocities across all movies (identical format),
@@ -532,7 +533,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
             "force_analysis": force_analysis, "nprocs": per_frame_nprocs,
             "max_frames": max_frames, "frame_step": frame_step,
             "overlay": overlay, "overlay_fps": overlay_fps,
-            "montage_frames": montage_frames, "verbose": verbose,
+            "montage_frames": montage_frames, "verbose": verbose, "plotting": plotting,
             "preprocess": dict(preprocess) if preprocess else None,
         }
 
@@ -624,7 +625,7 @@ def run(main_dir, *, mode="head-centric", head_channel="red", filament_channel="
             st, os.path.join(out_root, "frame_average.png"),
             perturbation_times_s=switch_times_plot, kinetics=kinetics,
             lit_intervals_s=lit_intervals, fit_curve=fit_curve, fit_label=fit_label,
-            bands=bands)
+            bands=bands, theme=plotting)
         if verbose and plot:
             print("[fastplus] plot ->", plot)
 

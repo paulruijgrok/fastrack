@@ -131,15 +131,16 @@ def run(
     num_frames_ave=5,
     percent_tolerance=500,
     pixel_size=80.65,
-    plot_ymax=0,
+    plot_ymax=None,
     plot_xmax=10000,
-    maxvel_color="b",
-    label_position="bottom",
-    paths_style="velocity",
-    paths_labels=False,
-    scale_bar_um=10.0,
-    paths_colormap="blue",
-    paths_points=True,
+    maxvel_color=None,
+    label_position=None,
+    paths_style=None,
+    paths_labels=None,
+    scale_bar_um=None,
+    paths_colormap=None,
+    paths_points=None,
+    plotting=None,
     fit_function="none",
     max_velocity=2016.25,
     min_velocity=80,
@@ -162,6 +163,11 @@ def run(
     verbose=False,
 ):
     """Run the full FAST analysis over a directory tree of movies.
+
+    Figures follow the plot theme in ``plotting`` (a theme name, a
+    :class:`~fastrack.viz.theme.Theme`, or :meth:`Settings.plot_spec`); the
+    ``plot_ymax`` / ``label_position`` / ``paths_*`` / ``maxvel_color``
+    keywords, when not ``None``, override the theme's figure options.
 
     ``preprocess``: ``None`` (off) or a recipe dict (see
     :data:`fastrack.preprocess.DEFAULT_PARAMS`) applied to every frame before
@@ -200,6 +206,17 @@ def run(
         """Dataset-relative path flattened into a single filename component."""
         rel = os.path.relpath(os.path.abspath(p), anchor)
         return rel.replace(os.sep, "_")
+
+    from ..viz.theme import load_theme
+    theme = load_theme(plotting, {"figures": {
+        "length_velocity": {k: v for k, v in dict(ymax=plot_ymax,
+                                                  label_position=label_position).items()
+                            if v is not None},
+        "paths_2D": {k: v for k, v in dict(style=paths_style, labels=paths_labels,
+                                           scale_bar_um=scale_bar_um, colormap=paths_colormap,
+                                           points=paths_points).items() if v is not None}},
+        "colors": {"maxvel": maxvel_color} if maxvel_color is not None else {}})
+    plot_ymax = theme.options("length_velocity")["ymax"]
 
     tolerance_prop = "none" if percent_tolerance == 500 else str(percent_tolerance)
 
@@ -510,10 +527,7 @@ def run(
 
             new_motility.process_frame_links(num_frames_ave)
             new_motility.plot_2D_path_data(num_frames_ave, extra_fname=out_path_fname,
-                                               style=paths_style, show_labels=paths_labels,
-                                               scale_bar_um=scale_bar_um,
-                                               colormap=paths_colormap,
-                                               show_points=paths_points)
+                                           theme=theme)
 
             # Rich trajectory export (one tidy CSV per movie, physical units).
             # Done here -- before the sparse-movie stats gate below -- so every
@@ -544,6 +558,7 @@ def run(
 
             if make_movie:
                 new_motility.reconstruct_skeleton_images(
+                    theme=theme,
                     frame_label=overlay_frame_label,
                     time_label=overlay_time_label,
                     frame_interval_s=overlay_frame_interval_s,
@@ -566,15 +581,13 @@ def run(
 
             stats = new_motility.plot_length_velocity(
                 extra_fname=out_vl_png_fname,
-                max_vel=plot_ymax,
                 max_length=plot_xmax,
                 min_path_length=min_path_length,
                 percent_tolerance=percent_tolerance,
                 min_points=10,
                 print_plot=True,
-                maxvel_color=maxvel_color,
-                label_position=label_position,
                 fit_f=fit_function,
+                theme=theme,
             )
             (top_5_velocity, percent_stuck, MVEL, MVEL_filtered, max_vel_u, MVIS,
              mean_len_stuck, mean_len_filtered, mean_len_mobile, mean_len_all,
@@ -619,15 +632,13 @@ def run(
 
         stats = combined_motility.plot_length_velocity(
             header=root_header + "_",
-            max_vel=plot_ymax,
             max_length=plot_xmax,
             min_path_length=min_path_length,
             percent_tolerance=percent_tolerance,
             min_points=10,
             print_plot=True,
-            maxvel_color=maxvel_color,
-            label_position=label_position,
             fit_f=fit_function,
+            theme=theme,
         )
         if stats[0] == -1:
             continue

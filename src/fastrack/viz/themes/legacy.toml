@@ -1,0 +1,22 @@
+# The original FAST look: FAST's rcParams (same base as "default" for now),
+# the original paths figure, top labels, fixed 1500 nm/s velocity axis and
+# PNG-only output at the original resolutions.
+#
+# Use it to compare with outputs of the original program:  fast ... --theme legacy
+# (The length-velocity layout keeps the fixes made since -- labels no longer cut
+# off, aligned panels -- so it is close to, not identical with, the original.)
+
+extends = "default"
+name = "legacy"
+
+[output]
+summary = ["png"]
+diagnostic = ["png"]
+
+[figures.length_velocity]
+ymax = 1500
+label_position = "top"
+
+[figures.paths_2D]
+style = "legacy"
+labels = true

@@ -1,7 +1,10 @@
-"""Plotting parameters for FASTrack (modernized Python 3 port).
+"""Plot helpers kept from the original FASTrack ``plotparams`` module.
 
-Original author: Tural Aksel.  Modernized for Matplotlib >= 3.6 and a headless
-(Agg) backend so plots render without a display server.
+The original module set FAST's rcParams (40 pt fonts, 10 pt lines, ...)
+*globally* at import, which restyled every figure in the process -- including
+other people's.  Those values now live in the plot theme
+(``viz/themes/default.toml``, ``[rc]``) and are applied only while a FASTrack
+figure is drawn (:mod:`fastrack.viz.theme`).  ``params`` is kept for reference.
 """
 import math
 
@@ -12,7 +15,6 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.cm as cm  # noqa: E402
-import matplotlib.pyplot as py  # noqa: E402
 import numpy as np  # noqa: E402
 
 params = {
@@ -39,15 +41,8 @@ params = {
     "figure.subplot.bottom": 0.135,
 }
 
-py.rcParams.update(params)
 
-font = {"family": "sans-serif", "sans-serif": ["Arial", "DejaVu Sans"], "weight": "normal"}
-py.rc("font", **font)
 
-yTick = {"major.pad": 10, "major.size": 20, "minor.size": 10, "labelsize": 40}
-xTick = {"major.pad": 10, "major.size": 20, "minor.size": 10, "labelsize": 40}
-py.rc("xtick", **xTick)
-py.rc("ytick", **yTick)
 
 
 def get_figsize(fig_width_pt):

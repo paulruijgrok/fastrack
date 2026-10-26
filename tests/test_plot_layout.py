@@ -25,14 +25,14 @@ def test_auto_limit_ignores_stuck_and_nonfinite_and_has_a_fallback():
 
 
 def test_plotting_defaults_auto_ymax_and_bottom_labels():
-    s = Settings()
-    assert s.plotting.ymax == 0
-    assert s.plotting.label_position == "bottom"
-    kw = s.to_run_kwargs()                 # what `fast` passes to gliding.run
-    assert kw["plot_ymax"] == 0 and kw["label_position"] == "bottom"
+    from fastrack.viz.theme import load_theme
+    kw = Settings().to_run_kwargs()                 # what `fast` passes to gliding.run
+    th = load_theme(kw["plotting"])
+    lv = th.options("length_velocity")
+    assert lv["ymax"] == 0 and lv["label_position"] == "bottom"
     from fastrack.pipelines import gliding
     import inspect
-    assert "label_position" in inspect.signature(gliding.run).parameters
+    assert "plotting" in inspect.signature(gliding.run).parameters
 
 
 def _motility_with_data(seed=0):
@@ -186,18 +186,19 @@ def test_paths_2D_rejects_unknown_style(tmp_path):
 
 
 def test_paths_settings_reach_the_pipeline():
-    s = Settings()
-    kw = s.to_run_kwargs()
-    assert (kw["paths_style"], kw["paths_labels"], kw["scale_bar_um"]) == ("velocity", False, 10.0)
+    from fastrack.viz.theme import load_theme
+    opt = load_theme(Settings().to_run_kwargs()["plotting"]).options("paths_2D")
+    assert (opt["style"], opt["labels"], opt["scale_bar_um"]) == ("velocity", False, 10.0)
     import inspect
     from fastrack.pipelines import gliding
     params = inspect.signature(gliding.run).parameters
-    assert {"paths_style", "paths_labels", "scale_bar_um"} <= set(params)
+    assert {"paths_style", "paths_labels", "scale_bar_um", "plotting"} <= set(params)
 
 
 def test_paths_colormap_blue_default_and_matplotlib_names(tmp_path):
     from fastrack.viz.plots import paths_colormap
-    assert Settings().to_run_kwargs()["paths_colormap"] == "blue"
+    from fastrack.viz.theme import load_theme
+    assert load_theme(Settings().plot_spec()).options("paths_2D")["colormap"] == "blue"
     r, g, b, _ = paths_colormap("blue")["cmap"](1.0)
     assert b > r and b > g                              # fast end is blue
     assert paths_colormap("viridis")["cmap"].name == "viridis"
@@ -211,7 +212,8 @@ def test_paths_colormap_blue_default_and_matplotlib_names(tmp_path):
 
 
 def test_paths_points_toggle(tmp_path):
-    assert Settings().to_run_kwargs()["paths_points"] is True
+    from fastrack.viz.theme import load_theme
+    assert load_theme(Settings().plot_spec()).options("paths_2D")["points"] is True
     m = _paths_motility(tmp_path)
     for pts in (True, False):
         m.plot_2D_path_data(5, show_points=pts)

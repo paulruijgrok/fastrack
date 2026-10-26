@@ -8,6 +8,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Plot themes: one master stylesheet for every figure** (`viz/theme.py`,
+  `viz/themes/{default,legacy,paper}.toml`, `docs/plotting.md`). Themes hold
+  backend-neutral tokens, named colours and colour scales, matplotlib rcParams,
+  output formats and per-figure options; a theme can `extends` another.
+  Layering: theme < `[plotting.*]` in the run config < `--plot key=value`.
+  New options on `fast`, `fastplus`, `lima`, `fast-preview`, `fast-batch`:
+  `--theme`, `--plot`, `--plot-formats`, `--skip-plot`. `legacy` reproduces the
+  original FAST look.
+- **Figure catalogue** (`viz/figures.py`): every figure's name, pipeline,
+  summary/diagnostic kind, files and option defaults; the table in
+  `docs/plotting.md` is generated from it.
+- **PDF + SVG output for summary figures** (length-velocity, paths, correlation,
+  LIMA, fastplus frame average), with editable text; diagnostic figures stay PNG.
+- **`figures.json`** in each output folder: index of the figures written, for a
+  later PDF report or viewer.
+- Prepared for interactive (Bokeh) output: `Theme.bokeh_theme_json()`,
+  `Theme.palette()`, per-figure renderer hook (`register_renderer`), `html`
+  format, `[interactive]` extra. No Bokeh figure yet.
 - **New `paths_2D` style** (`[plotting] paths_style = "velocity"`, default):
   tracks drawn forward in time, coloured by each track's median velocity
   (blue/white/grey scheme, `paths_colormap = "blue"`; `"blue-red"` is diverging around the movie's
@@ -52,6 +70,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Importing FASTrack no longer changes matplotlib's global settings
+  (`viz/plotparams.py` set FAST's 40 pt fonts process-wide). The values live in
+  the default theme's `[rc]` and apply per figure: the FAST figures are
+  pixel-identical; the fastplus figures and the preview dashboard, which had
+  been inheriting the large global settings by accident, now render with
+  matplotlib's defaults as designed (legend handles, tick sizes).
+- `[plotting]` keys `ymax`, `label_position`, `maxvel_color`, `paths_*`,
+  `scale_bar_um` are deprecated in config files in favour of
+  `[plotting.length_velocity]` / `[plotting.paths_2D]` / `[plotting.colors]`
+  (still accepted, with a warning). `gliding.run` takes `plotting=`; its old
+  plot keywords still override the theme.
+- `-m` tracking movie: with the new velocity-style paths figure (cropped, with a
+  colourbar) the frames were composited onto a stretched copy of
+  `paths_2D.png`. The movie now draws its own track background with the frames'
+  geometry (`paths_2D_movie_bg.png`); the legacy style is unchanged.
 - Linking speed-up (also for the full pipeline): the candidate gates in
   `GreedyLinker.link` and `Motility.wire_frame_links` are evaluated with arrays
   instead of per-filament Python comprehensions. Same arithmetic, same candidate

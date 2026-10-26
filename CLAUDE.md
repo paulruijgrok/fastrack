@@ -51,6 +51,12 @@ tracking / output seams behind a registry + `Settings`.
   future work); sweep for dead code before committing; correctness → single-core →
   parallel; ship a fail-isolated batch mode for real pipelines.
 - Docs live in `docs/`; the README is a map that links out to `docs/<topic>.md`.
+- **Figures** follow the plot theme (`viz/theme.py`, `viz/themes/*.toml`,
+  catalogue in `viz/figures.py`; see `docs/plotting.md`): draw inside
+  `as_theme(theme).figure("<name>")`, take colours / dpi / formats / options
+  from the context, save with `fx.save`, never touch global rcParams. New
+  figure → register it in `viz/figures.py` + a `[figures.<name>]` section in
+  `default.toml` (tests check they agree, and that the docs table is current).
 
 ## Session journaling (standard operating procedure)
 

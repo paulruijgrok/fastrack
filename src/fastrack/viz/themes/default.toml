@@ -1,0 +1,149 @@
+# FASTrack master theme ("default").
+#
+# Every figure in the repo takes its base look from here; other themes
+# (legacy.toml, paper.toml, or your own file) override parts of it via
+# `extends = "default"`, and a run config / the CLI can override any key again:
+#
+#   theme file  <  [plotting.rc] / [plotting.<figure>] in the run config  <  --plot key=value
+#
+# Sections
+#   [tokens]     backend-neutral design values (used by matplotlib AND, later, Bokeh)
+#   [colors]     named colours the figures use (never hard-code a colour in a figure)
+#   [colormaps]  named colour scales, as colour stops (-> matplotlib colormap / Bokeh palette)
+#   [rc]         matplotlib rcParams applied while a figure is drawn (nothing leaks)
+#   [bokeh]      Bokeh-only extras (interactive HTML outputs; not used yet)
+#   [output]     default file formats for summary vs diagnostic figures
+#   [figures.X]  per-figure options; see docs/plotting.md for the catalogue
+
+name = "default"
+
+[tokens]
+font_family = ["Arial", "DejaVu Sans"]
+font_scale = 1.0           # multiplies every explicit font size in the figures
+background = "white"
+ink = "0.2"                # scale bars, annotation text
+
+[colors]
+moving = "gray"            # length-velocity: all 5-step windows
+maxvel = "b"               # length-velocity: fastest window per track
+fit = "r"
+stuck = "0.6"              # paths: stuck tracks
+preview_moving = "lime"    # preview dashboard overlay
+preview_stuck = "red"
+floppy = "orange"
+pinned = "magenta"
+good = "tab:green"         # quality bars (preview)
+marginal = "orange"
+poor = "tab:red"
+plus_end = "#1ec81e"       # polarity classes (fastplus QC)
+both_ends = "#e61e1e"
+middle = "#ff9600"
+none = "#a0a0a0"
+
+[colormaps.blue]
+stops = ["#bdd7ee", "#6baed6", "#2171b5", "#08306b"]
+ink = "0.25"
+stuck = "0.6"
+background = "white"
+centred = false
+
+[colormaps.blue-red]       # diverging: white = the movie's median track velocity
+stops = ["#08306b", "#2171b5", "#9ecae1", "#ffffff", "#fc9272", "#cb181d", "#67000d"]
+ink = "0.15"
+stuck = "0.4"
+background = "0.78"        # grey, so the white (typical) tracks stay visible
+centred = true
+
+# The original FAST rcParams (formerly set globally by viz/plotparams.py).
+# They are the base the existing figures were laid out for; the styling pass
+# will replace them.
+[rc]
+"axes.labelsize" = 40
+"axes.titlesize" = 40
+"font.size" = 40
+"legend.fontsize" = 40
+"legend.labelspacing" = 0.1
+"legend.handletextpad" = 0.2
+"legend.borderaxespad" = 1.0
+"legend.numpoints" = 1
+"legend.handlelength" = 0.5
+"legend.frameon" = true
+"legend.fancybox" = true
+"legend.borderpad" = 0.2
+"lines.markersize" = 25
+"lines.markeredgewidth" = 3
+"axes.linewidth" = 1.0
+"lines.linewidth" = 10
+"mathtext.fontset" = "cm"
+"mathtext.default" = "regular"
+"axes.formatter.limits" = [-4, 4]
+"figure.subplot.top" = 0.95
+"figure.subplot.bottom" = 0.135
+"font.family" = "sans-serif"
+"font.weight" = "normal"
+"xtick.major.pad" = 10
+"xtick.major.size" = 20
+"xtick.minor.size" = 10
+"xtick.labelsize" = 40
+"ytick.major.pad" = 10
+"ytick.major.size" = 20
+"ytick.minor.size" = 10
+"ytick.labelsize" = 40
+"pdf.fonttype" = 42        # editable (TrueType) text in PDF ...
+"svg.fonttype" = "none"    # ... and real text, not paths, in SVG
+
+[bokeh]
+toolbar_location = "right"
+
+[output]
+summary = ["png", "pdf", "svg"]     # length-velocity, paths, LIMA, correlation
+diagnostic = ["png"]                # per-frame / QC images, preview dashboard
+# "html" is accepted for figures with an interactive (Bokeh) renderer; others skip it.
+
+# --------------------------------------------------------------------------- #
+# Per-figure options.  `rc` inside a figure section is merged over [rc];
+# `rc_base = "matplotlib"` starts that figure from matplotlib's defaults instead.
+# --------------------------------------------------------------------------- #
+[figures.length_velocity]
+dpi = 200
+ymax = 0                   # velocity axis limit (nm/s); 0 = from the data
+label_position = "bottom"  # "bottom" | "top"
+label_units = false
+text_font_size = 30
+pad_inches = 0.3
+
+[figures.paths_2D]
+dpi = 300
+style = "velocity"         # "velocity" | "legacy" (the original FAST figure)
+colormap = "blue"          # a [colormaps] name or any matplotlib colormap
+points = true             # dot at the filament position in each frame
+labels = false             # write each track's velocity
+scale_bar_um = 10.0        # 0 = none
+width_in = 8.0
+line_width = 1.2
+legacy_dpi = 400
+pad_inches = 0.05
+
+[figures.correlation_length]
+dpi = 200
+
+[figures.lima_load]
+dpi = 100
+
+[figures.lima_length]
+dpi = 200
+
+[figures.filaments_frame]
+dpi = 200
+
+[figures.preview_dashboard]
+dpi = 80
+rc_base = "matplotlib"
+
+[figures.polarity_montage]
+dpi = 110
+rc_base = "matplotlib"
+
+[figures.frame_average]
+dpi = 150
+rc_base = "matplotlib"
