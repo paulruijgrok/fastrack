@@ -4,9 +4,24 @@ A clean, modern Python 3 port of Tural Aksel's **FAST** / **FASTrack** package �
 *Fast Actin filament Spud Trekker* — for automated analysis of in-vitro actin
 gliding-assay movies (Aksel et al., *Cell Reports*, 2015).
 
-The numerical algorithm is preserved verbatim from the original Python 2.7 code.
-This port only updates it to run on current scientific-Python stacks and
-replaces two external dependencies:
+This port brings Tural Aksel's FAST package to current scientific-Python stacks.
+It largely preserves the original numerical algorithm (`--legacy-linking` and
+`--exact-rank` restore the original linking and 16-bit filter paths), and adds:
+
+- **Speed:** 8-bit rank filters (~1.8x faster detection, < 0.4 % velocity
+  change) and a vectorized linker (same results; linking a dense 20-frame
+  movie 14.4 s -> 2.1 s).
+- **Detection:** optional ridge detectors (`ridge`, `ridge-fast`) with a
+  signal-to-noise filter, and preprocessing for low-SNR / unevenly lit movies.
+- **Input and output:** TIFF stacks as well as frame folders; tidy trajectory /
+  contour CSV export; overlay movies.
+- **Workflows:** a fail-isolated batch runner (`fast-batch`, SLURM-ready);
+  `fast-preview`, a few-seconds quality check at the microscope with a PDF
+  report; FASTplus, directional analysis of polarity-labelled two-colour movies.
+- **Figures:** plot themes from one stylesheet, PDF/SVG output, a plateau fit
+  with error estimates.
+
+It also replaces two external dependencies:
 
 - **Parallelism:** the original spawned per-frame Python subprocesses through the
   `ppss` bash tool. This port uses Python's built-in `multiprocessing` instead —
