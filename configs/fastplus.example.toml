@@ -1,7 +1,7 @@
-# config.plus.example.toml
-# =========================
+# configs/fastplus.example.toml
+# ==============================
 # Example configuration for the FASTplus directional driver (`fastplus -d DIR`).
-# Pass with:  fastplus -d ./MyLOVChar --config config.plus.example.toml
+# Pass with:  fastplus -d ./MyLOVChar --config configs/fastplus.example.toml
 #
 # Resolution order (last wins): built-in defaults < this file < CLI flags.
 # Every key is optional; comment a line to fall back to the built-in default

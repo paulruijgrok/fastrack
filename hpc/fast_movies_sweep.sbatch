@@ -73,7 +73,9 @@ cd "$FAST_RUN"
 cut -f2-4 movies.tsv | sort -u | while IFS=$'\t' read -r name base config; do
     cfg=(); [ "$config" != "-" ] && cfg=(--config "$config")
     log "combine $name"
-    fast -d "$base" "${cfg[@]}" -j "${SLURM_CPUS_PER_TASK:-1}" > "combine_logs/${name}.log" 2>&1
+    # </dev/null: the loop reads the dataset list on stdin, and ffmpeg (overlay
+    # movies) reads stdin too -- without it, it swallows the remaining datasets.
+    fast -d "$base" "${cfg[@]}" -j "${SLURM_CPUS_PER_TASK:-1}" > "combine_logs/${name}.log" 2>&1 < /dev/null
 done
 date -Is > "$FAST_RUN/COMPLETE"
 log "campaign complete -- outputs under $FAST_RUN/outputs"

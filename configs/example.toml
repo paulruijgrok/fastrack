@@ -1,6 +1,6 @@
 # Example FASTrack configuration.
 #
-#   fast -d examples/unloaded_motility/micromanager_tifs --config config.example.toml
+#   fast -d examples/unloaded_motility/micromanager_tifs --config configs/example.toml
 #
 # Every section and key is optional — only the keys you set are applied; the
 # rest keep their defaults. Any explicit CLI flag overrides the value here, and

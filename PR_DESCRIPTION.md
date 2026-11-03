@@ -1,135 +1,75 @@
-# Preview mode (`fast-preview`): a few-seconds quick look for use at the microscope
+# Example library: move configs and dataset manifests into `configs/` and `datasets/`
 
 ## Summary
 
-Adds **`fast-preview`**, a quick-look analysis meant to run at the microscope
-while acquiring, to decide whether the imaging conditions are good enough for
-the full analysis. From 20 frames at 2x2 binning it reports **gliding velocity,
-the length distribution and the stuck fraction**, and **ranks image-quality
-problems worst first with advice** — focus, signal-to-noise, illumination
-flatness, background, saturation, filament density (too few / crowded), stuck,
-floppy and pinned filaments, bleaching, and displacement per frame (frame rate) —
-ending in a GOOD / MARGINAL / POOR verdict.
+The config files and `fast-batch` manifests lived loose in the repo root under
+`config.*.toml` / `datasets.*.csv` / `mylist.csv` names. They now live in two
+folders that form a library of examples, each with a README index, and a test
+keeps every file in them loadable.
 
-**Speed:** 3.8 s on the densest Taka movie (~530 filaments/frame) on an Apple
-Silicon Mac with a native (arm64) environment; ~2–3 s on typical movies.
-**Accuracy** vs the full analysis (38 Taka movies): velocity +0.4 % against the
-length-matched MVEL, mean length +0.8 % (r = 0.93), stuck r = 0.77.
-
-Also includes a **linking speed-up that benefits the full pipeline**
-(bit-identical results, dense 20-frame linking 14.4 s → 2.1 s).
-
-```bash
-fast-preview /path/to/movie                  # one movie, or a folder of movies
-fast-preview /path/to/movie --latest         # newest frames while still acquiring
-fast-preview /path/to/movie --config config.taka.toml
+```
+configs/                    analysis settings, passed with --config
+  README.md                 index: what each file is for, how to add one
+  example.toml              <- config.example.toml         (reference: every fast setting)
+  fastplus.example.toml     <- config.plus.example.toml    (reference: every FASTplus setting)
+  perturb.example.toml      <- config.perturb.example.toml (template: per-movie LED sidecar)
+  taka.toml                 <- config.taka.toml
+datasets/                   fast-batch manifests
+  README.md                 index + the path rule
+  example.csv               <- datasets.example.csv        (reference: the column format)
+  taka.csv                  <- datasets.taka.csv
+  unloaded.csv              <- mylist.csv
 ```
 
-Writes a per-movie JSON report, a dashboard PNG (overlay of moving/stuck
-filaments, length and velocity histograms, quality bars) and
-`preview_summary.csv`. Docs: [`docs/preview.md`](docs/preview.md).
+```bash
+fast -d <dataset> --config configs/example.toml
+fast-batch datasets/taka.csv
+fast-preview <movie> --config configs/taka.toml
+```
 
 ## What changed
 
-- **`pipelines/preview.py` + `fast-preview` CLI** (`cli/__init__.py`,
-  `pyproject.toml`). Fastest settings by default, all overridable: `-n 20`
-  frames (or `--latest`: the newest 20, skipping the newest file, which may still
-  be being written), `--bin 2` (ridge line widths / min length scaled), the
-  `ridge-fast` detector with `min_snr 3` (falls back to `ridge`), a process pool
-  (`-j`), no caches. Linking, paths and statistics use the standard FAST code,
-  so velocity filtering matches the full analysis. Fail-isolated per movie.
-- **Low-order background instead of the temporal median.** Over only 20 frames,
-  a filament that moves less than ~2 of its lengths covers some pixels in more
-  than half the frames, so a median background contains it and subtracting it
-  cut moving filaments short (synthetic movie: half the true length and
-  velocity). Preview uses the per-pixel 2nd-smallest value of the frames.
-- **Stuck filaments counted directly.** Background subtraction removes stuck
-  filaments from the frames, so tracking under-counts them (the full pipeline
-  does too). Preview detects them on that low-order background image; "static"
-  means moved less than ~1 filament length during the window (~75 nm/s at
-  20 frames × 1 s for 1.5 µm filaments, close to the stuck threshold).
-- **Focus measured from the image** (`analysis/profile_width.py`). The
-  detector's own width estimate depends on the implementation (`ridge` reads
-  ~60 nm wider than `ridge-fast`). Instead, for the 40 longest filaments in a
-  full-resolution centre crop, perpendicular profiles are taken from the raw
-  pixels, re-centred to sub-pixel precision, median-combined and fitted with a
-  Gaussian on a sloped background → FWHM. Profiles crossing another filament are
-  dropped; the window widens for blurred filaments. Computed while the workers
-  detect the other frames.
-- **Attachment metrics** (`analysis/track_shape.py`). *Floppy*: % of moving
-  tracks that leave their own track sideways — for each step, the distance of
-  the new contour from the *curve* of the old one (gliding filaments follow
-  their track, ~0); steps where the new contour doesn't touch the old one
-  (mislinks) are ignored. *Pinned*: % of tracks with one tip anchored (radius
-  of gyration ≤ 120 nm) while the other sweeps. FAST's index-matched
-  orthogonal distance (`area_score`) was tried first but measures chords
-  across curved filaments and grows with speed. Flagged tracks are drawn on
-  the dashboard, with a strip of examples coloured by time.
-- **Import-light detection worker** (`core/detection/worker.py`) + pool
-  initializer. On macOS, workers are spawned and re-import the module holding
-  the task function; from `fastrack.pipelines` that pulled in the whole gliding
-  pipeline (~3 s per run under Rosetta). Default worker count = performance
-  cores on Apple Silicon (12 workers on an 8P+4E Mac were slower than 8).
-- **Vectorized candidate gates** in `GreedyLinker.link` and
-  `Motility.wire_frame_links` (array arithmetic instead of per-filament Python
-  comprehensions; same arithmetic and candidate order).
-- Docs: `docs/preview.md`, README section, CHANGELOG, CLAUDE.md;
-  journal `journals/2026-10-19_preview-mode.md`.
-
-## Quality thresholds
-
-Scores are linear between a "good" and a "poor" anchor; the verdict is the
-worst metric's status. Calibrated on the 38 Taka movies plus noise-aware
-blur/dim simulations — starting points to tune per setup (`QUALITY_SPECS`).
-
-| metric | good → poor |
-|---|---|
-| Filament signal-to-noise | 12 → 4 |
-| Focus (cross-section FWHM) | 290 → 380 nm (in focus 250–290; 1 px defocus 320–370; 2 px 430–600) |
-| Illumination flatness (p5/p95 gain) | 0.8 → 0.5 |
-| Saturated pixels | 0.01 → 0.5 % |
-| Background / filament signal | 6 → 15 |
-| Filaments per 100 µm² | too few 1 → 0.3; crowded 8 → 14 |
-| Stuck filaments | 15 → 40 % |
-| Floppy tracks (leave their own track) | 10 → 30 % |
-| Pinned filaments (one end anchored) | 1 → 5 % |
-| Bleaching | 1 → 3 %/frame |
-| Displacement per frame / length | 0.6 → 1.0 |
+- **Moves** with `git mv` (history follows the files). The folder now says what
+  a file is, so the `config.` / `datasets.` prefixes are dropped; `mylist.csv`
+  became `datasets/unloaded.csv` (it lists the unloaded-motility example).
+- **Manifest paths.** `fast-batch` resolves relative paths against the
+  manifest's own folder, so the manifests now point at `../examples/...` and
+  `../configs/...`. They resolve to exactly the same directories and configs as
+  before, from any working directory.
+- **READMEs** in both folders: an index table (file, which command uses it,
+  what it is — *reference*, *template* or a specific experiment), the
+  layering/override rules for configs, the path rule for manifests, and how to
+  add a new entry.
+- **`tests/test_example_library.py`**: loads every config in `configs/` through
+  `Settings.from_toml` (the `--config` code path, which rejects unknown
+  sections/keys — so a typo fails the suite), parses the perturbation template
+  as a sidecar, parses every manifest in `datasets/` and checks each referenced
+  config exists in `configs/`, and fails if a config or manifest is added back at
+  the repo root. The movie data (`examples/`, not in git) is not required.
+- **References updated**: README (config section + an "Example library"
+  paragraph), `docs/fastplus.md`, `docs/PR_fastplus_directional.md`,
+  `docs/preview.md`, `hpc/README.md` (plus a note on copying a library manifest
+  into a Sherlock run dir), comments inside the moved files, CLAUDE.md,
+  CHANGELOG. Journals keep the old names — they record what was run at the time.
 
 ## Verification
 
-- **Tests:** `tests/test_preview.py` (helpers, scoring/ranking, end-to-end on a
-  synthetic movie with known answers — 323 nm/s, 3 stuck / 6 moving, 60 px
-  filaments, which a median background would get wrong — `--latest` frame
-  selection, CLI) and `tests/test_profile_width.py` (±3 % on synthetic lines at
-  any angle and sub-pixel offset, wide blur, neighbour rejection) and
-  `tests/test_track_shape.py` (gliding along a curved track stays on track and
-  isn't pinned; a swivelling filament is pinned and floppy; jumps to another
-  filament are ignored; tip identity survives contour flips). Full suite on
-  the Mac (`fastrack-arm`, native arm64): **178 passed, 2 skipped**, golden
-  masters included (cloud: 174 passed, 5 skipped — no local golden data).
-- **38 Taka movies vs the full `ridge-fast` analysis:** velocity +0.4 % vs
-  length-matched MVEL (IQR −2.8 … +2.9 %), mean length +0.8 % (r = 0.93),
-  stuck r = 0.77 (systematically higher, by design). Verdicts: 28 GOOD,
-  4 MARGINAL, 6 POOR. Floppy median 7.6 % (p90 18 %), independent of density
-  (r = −0.23); pinned 0 % in most movies, up to 3 %.
-- **Linker vectorization:** identical velocity / length / point counts on Taka
-  before and after.
-- **Determinism across machines:** Mac and cloud give identical numbers for the
-  same detector.
-- **Timing (densest movie, E11K_300nM_1):** Mac native arm64 1/4/8/12 workers
-  8.9 / 4.4 / 3.8 / 4.0 s; Rosetta (x86_64) 8 workers 5.5 s; 2-core cloud 12 s.
+- Full suite: **183 passed, 5 skipped** (cloud; +9 library tests).
+- `fast-batch datasets/taka.csv --preflight-only` run from another directory
+  resolves all four slides to `<repo>/examples/taka/04302026 Motility
+  Experiment/slide_0N` with `<repo>/configs/taka.toml`.
+- A config with a misspelled key or section is rejected by
+  `Settings.from_toml` (checked), so the library test catches typos.
 
-## Known limitations / future work
+## Notes for users
 
-- **Attachment metrics at 2×2 binning:** a pixel is ~160 nm, so subtle pinning
-  (< 2 px sweep) is missed, and in the most crowded or dimmest fields a few
-  flagged floppy tracks are still tracking errors or jittery contours.
-- **Focus thresholds come from simulated blur**; confirm on a real
-  through-focus series. Strong defocus (3 px) is under-read in crowded fields
-  (still rated POOR).
-- Possible extras: a `--watch` mode with a persistent worker pool for use while
-  acquiring; low-order background + direct stuck counting in the full pipeline.
+- Commands and scripts that name the old files need the new paths, e.g.
+  `fast-batch datasets.taka.csv` → `fast-batch datasets/taka.csv`,
+  `--config config.taka.toml` → `--config configs/taka.toml`.
+- Sherlock run dirs that hold their own copy of a manifest + config are
+  unaffected. To run a library manifest there, use it in place (with the
+  `examples` symlink at the repo root), or copy it together with its config and
+  fix the relative paths.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 

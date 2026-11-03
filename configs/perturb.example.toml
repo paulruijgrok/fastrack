@@ -1,5 +1,8 @@
 # Per-movie perturbation sidecar (FASTplus)
 # =========================================
+# This is a template: copy it next to a movie and rename it as below (it is not
+# passed with --config).
+#
 # Place a file named "<movie-stem>.perturb.toml" next to a raw movie to declare
 # its external-perturbation (LED) switch schedule. The stem matches the movie
 # filename without extension; a trailing " RGB" / "_RGB" is also accepted, so for

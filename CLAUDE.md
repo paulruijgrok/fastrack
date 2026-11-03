@@ -57,6 +57,11 @@ tracking / output seams behind a registry + `Settings`.
   from the context, save with `fx.save`, never touch global rcParams. New
   figure → register it in `viz/figures.py` + a `[figures.<name>]` section in
   `default.toml` (tests check they agree, and that the docs table is current).
+- **Example library:** configs in `configs/` (TOML, `--config`), `fast-batch`
+  manifests in `datasets/` (CSV; paths relative to the manifest, so `../configs/`,
+  `../examples/`). Each folder has a README index — add new ones there.
+  `tests/test_example_library.py` loads them all. Movie data (`examples/`) is not
+  in git.
 
 ## Session journaling (standard operating procedure)
 

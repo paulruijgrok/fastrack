@@ -1,0 +1,5 @@
+# fast-batch manifest: the unloaded-motility example movie with configs/example.toml.
+#   fast-batch datasets/unloaded.csv
+# Paths are relative to this file (datasets/).
+name,base_dir,config
+unloaded_a,../examples/unloaded_motility/micromanager_tifs,../configs/example.toml

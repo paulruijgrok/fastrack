@@ -8,7 +8,7 @@ enough for the full analysis.
 fast-preview /path/to/movie                 # one movie (Micro-Manager folder or TIFF stack)
 fast-preview /path/to/slide                 # every movie under a folder
 fast-preview /path/to/movie --latest        # newest frames of a movie still being written
-fast-preview /path/to/movie --config config.taka.toml   # pixel size, stuck threshold, ridge settings
+fast-preview /path/to/movie --config configs/taka.toml   # pixel size, stuck threshold, ridge settings
 ```
 
 For each movie it prints a short report and writes (default
