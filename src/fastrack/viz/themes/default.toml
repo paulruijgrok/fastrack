@@ -32,9 +32,12 @@ preview_moving = "lime"    # preview dashboard overlay
 preview_stuck = "red"
 floppy = "orange"
 pinned = "magenta"
-good = "tab:green"         # quality bars (preview)
-marginal = "orange"
-poor = "tab:red"
+good = "#2e9e5b"            # quality status (preview)
+marginal = "#e09b2d"
+poor = "#d64545"
+report_ink = "#1f2328"     # preview report text
+report_muted = "#6b7280"
+report_track = "#e6e8ec"   # light fills (slider tracks, table bands)
 plus_end = "#1ec81e"       # polarity classes (fastplus QC)
 both_ends = "#e61e1e"
 middle = "#ff9600"
@@ -136,8 +139,24 @@ dpi = 200
 [figures.filaments_frame]
 dpi = 200
 
+[figures.preview_report]
+dpi = 150                  # PNG pages
+formats = ["pdf", "png"]   # one PDF with every page + one PNG per page
+page_size = "letter"       # "letter" | "a4"
+overlay_page = "auto"      # tracks overlay on page 1 if it fits, else page 2; or "1" / "2"
+overlay_min_width = 0.667  # fraction of the page width the overlay must get on page 1
+overlay_width = 0.68       # overlay width when not on page 1 (fraction of the page width)
+slider = "status"          # quality sliders: "status" (marker coloured by status) | "zones"
+time_colormap = "viridis"  # contours of the example tracks, early -> late
+rc_base = "matplotlib"
+[figures.preview_report.rc]
+"font.family" = "sans-serif"
+"font.sans-serif" = ["Arial", "Inter", "DejaVu Sans"]
+"pdf.fonttype" = 42        # selectable / editable text in the PDF
+
 [figures.preview_dashboard]
 dpi = 80
+enabled = false            # the old one-page dashboard; the report replaces it
 rc_base = "matplotlib"
 
 [figures.polarity_montage]

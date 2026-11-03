@@ -99,7 +99,8 @@ in a theme (`[figures.<name>]`), a config (`[plotting.<name>]`) or with
 | `paths_2D` | fast | summary | `<movie>_2D.*, <movie>/paths_2D.*` | dpi 300; `style = "velocity"`, `colormap = "blue"`, `points = true`, `labels = false`, `scale_bar_um = 10.0`, `width_in = 8.0`, `line_width = 1.2`, `legacy_dpi = 400`, `pad_inches = 0.05` |
 | `correlation_length` | fast | summary | `correlation_length.*` | dpi 200 |
 | `filaments_frame` | fast | diagnostic | `filaments_<frame>.*` | dpi 200 |
-| `preview_dashboard` | fast-preview | diagnostic | `<movie>_preview.*` | dpi 80 |
+| `preview_report` | fast-preview | diagnostic | `<movie>_preview.pdf, <movie>_preview_p<N>.png` | dpi 150; `page_size = "letter"`, `overlay_page = "auto"`, `overlay_min_width = 0.667`, `overlay_width = 0.68`, `slider = "status"`, `time_colormap = "viridis"` |
+| `preview_dashboard` | fast-preview | diagnostic | `<movie>_dashboard.png` | dpi 80; `enabled = false` |
 | `polarity_montage` | fastplus | diagnostic | `qc_overlay.*` | dpi 110 |
 | `frame_average` | fastplus | summary | `frame_average.*` | dpi 150 |
 | `lima_load` | lima | summary | `<A>_vs_<B>_stop_model*.*` | dpi 100 |

@@ -469,6 +469,8 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
         velocity_cv_median=float(np.median(vel_cv)) if vel_cv else None,
         attachment=dict(floppy_tracks=len(att["floppy_paths"]), pinned_tracks=len(att["pinned_paths"]),
                         tracks_for_floppy=att["n_floppy_tracks"], tracks_for_pinned=att["n_pinned_tracks"]),
+        tracking=_tracking_stats(m, used, et if timing == "metadata" else None,
+                                 s.num_frames_ave, dx),
     )
     T["stats"] = time.perf_counter() - t
     T["total"] = time.perf_counter() - t0
@@ -478,8 +480,48 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
                                moving=filxys[used[len(used) // 2]], static=static,
                                lengths_um=det_len_um, static_lengths_um=static_len_um,
                                velocities=moving_v,
+                               len_vel=flv[:, :2].copy(),
+                               max_len_vel=(np.asarray(m.max_len_vel)[:, :2].copy()
+                                            if len(m.max_len_vel) else np.zeros((0, 2))),
+                               tracks=_track_trails(m.paths, s.num_frames_ave),
+                               dx_nm=dx,
                                **_attachment_tracks(att))
     return result
+
+
+def _tracking_stats(m, used, elapsed, num_frames_ave, dx):
+    """Counts describing the linking / tracking (for the report's table)."""
+    paths = list(m.paths)
+    long_ = [p for p in paths if len(p.links) >= num_frames_ave]
+    stuck = [p for p in long_ if getattr(p, "stuck", False)]
+    links = [len(p.links) for p in paths]
+    n_links = int(sum(len(fl) for fl in m.frame_links)) if getattr(m, "frame_links", None) else None
+    if elapsed is not None and len(used) > 1:
+        dt = float(np.median(np.diff([elapsed[i] for i in used])))
+    else:
+        dt = float(getattr(m, "dt", 1.0) or 1.0)
+    return dict(
+        frame_interval_s=dt,
+        links=n_links,
+        tracks=len(paths),
+        tracks_analysed=len(long_),
+        tracks_moving=len(long_) - len(stuck),
+        tracks_stuck=len(stuck),
+        median_track_links=float(np.median(links)) if links else None,
+        max_track_links=int(max(links)) if links else None,
+        min_track_links=int(num_frames_ave),
+        pixel_nm=float(dx),
+    )
+
+
+def _track_trails(paths, num_frames_ave):
+    """Midpoint trails (x = col, y = row) of the analysed tracks + stuck flags."""
+    from ..viz.plots import track_midpoints
+    out = []
+    for p in paths:
+        if len(p.links) >= num_frames_ave:
+            out.append((track_midpoints(p), bool(getattr(p, "stuck", False))))
+    return out
 
 
 def _attachment_tracks(att):
@@ -534,14 +576,26 @@ def format_report(name, r):
 
 
 def plot_dashboard(name, r, path, theme=None):
-    """Write the dashboard figure (``preview_dashboard`` in the plot theme)."""
+    """Write the preview report (``preview_report``: PDF + one PNG per page) and,
+    if enabled, the old one-page dashboard (``preview_dashboard``).
+
+    ``path`` is the output stem (an extension is ignored).
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from ..viz.preview_report import render_report
     from ..viz.theme import as_theme
-    with as_theme(theme).figure("preview_dashboard") as fx:
+    th = as_theme(theme)
+    stem = os.path.splitext(path)[0] if path.lower().endswith(".png") else path
+    files = []
+    with th.figure("preview_report") as fx:
         if fx.enabled:
-            _plot_dashboard(plt, name, r, path, fx)
+            files += render_report(name, r, stem, fx)
+    with th.figure("preview_dashboard") as fx:
+        if fx.enabled:
+            files += _plot_dashboard(plt, name, r, stem.replace("_preview", "") + "_dashboard", fx)
+    return files
 
 
 def _track_strip(fig, cell, img, P, r, n=7):
@@ -624,8 +678,9 @@ def _plot_dashboard(plt, name, r, path, fx):
     ax.set_xlabel("quality score (1 = good)")
     ax.tick_params(axis="y", labelsize=8)
     fig.tight_layout()
-    fx.save(fig, path)
+    files = fx.save(fig, path)
     plt.close(fig)
+    return files
 
 
 # --------------------------------------------------------------------------- #
@@ -680,7 +735,7 @@ def run(path, settings: PreviewSettings = None, out_dir=None, plot=True, quiet=F
             if out_dir:
                 if plot:
                     t = time.perf_counter()
-                    plot_dashboard(name, r, os.path.join(out_dir, safe + "_preview.png"),
+                    plot_dashboard(name, r, os.path.join(out_dir, safe + "_preview"),
                                    theme=theme)
                     r["seconds"]["plot"] = round(time.perf_counter() - t, 3)
                 r.pop("_plot", None)

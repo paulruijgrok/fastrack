@@ -184,7 +184,7 @@ class Theme:
         return list(self.output.get(kind, ["png"]))
 
     def enabled(self, figure: str) -> bool:
-        return figure not in self.skip and self.figures.get(figure, {}).get("enabled", True)
+        return figure not in self.skip and bool(self.options(figure).get("enabled", True))
 
     # -- colours ------------------------------------------------------------ #
     def color(self, name: str) -> Any:
@@ -331,6 +331,41 @@ class FigureContext:
             out = stem + "." + fmt
             fig.savefig(out, format=fmt, **kw)
             written.append(out)
+        self.saved.extend(written)
+        if self.theme.manifest and written:
+            record_figure(os.path.dirname(stem) or ".", self.name, written, title=title,
+                          theme=self.theme.name)
+        return written
+
+
+    def save_pages(self, figs: Sequence, path: str, formats: Optional[Sequence[str]] = None,
+                   title: Optional[str] = None, **savefig_kw: Any) -> List[str]:
+        """Save a multi-page document: one PDF with every page, and for the
+        other formats one file per page (``<stem>_p1.png``, ``<stem>_p2.png``...)."""
+        stem = _strip_ext(path)
+        fmts = list(formats) if formats else self.theme.formats(self.name)
+        kw = {"dpi": self.opt.get("dpi", 150)}
+        kw.update(savefig_kw)
+        written = []
+        for fmt in fmts:
+            fmt = fmt.lower().lstrip(".")
+            if fmt in INTERACTIVE_FORMATS:
+                warnings.warn("%s: no interactive renderer yet, skipping %s" % (self.name, fmt))
+                continue
+            if fmt not in STATIC_FORMATS:
+                raise ValueError("%s: unknown figure format %r" % (self.name, fmt))
+            if fmt == "pdf":
+                from matplotlib.backends.backend_pdf import PdfPages
+                out = stem + ".pdf"
+                with PdfPages(out) as pdf:
+                    for f in figs:
+                        pdf.savefig(f, **kw)
+                written.append(out)
+                continue
+            for i, f in enumerate(figs):
+                out = "%s_p%d.%s" % (stem, i + 1, fmt)
+                f.savefig(out, format=fmt, **kw)
+                written.append(out)
         self.saved.extend(written)
         if self.theme.manifest and written:
             record_figure(os.path.dirname(stem) or ".", self.name, written, title=title,

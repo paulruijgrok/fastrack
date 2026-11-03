@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **fast-preview report** (`viz/preview_report.py`, figure `preview_report`)
+  replaces the one-page dashboard: a portrait PDF (+ one PNG per page) with the
+  verdict and headline numbers (mean / top-5 % velocity, stuck %, length), three
+  small FAST-style plots (velocity, length vs velocity, length), quality scores
+  as slider rows with the suggested fix on page 1; the frame with tracks,
+  floppy / pinned examples, tracking statistics and the metric thresholds on
+  the following pages. Options: page size, overlay placement, slider colouring.
+  The preview JSON gains a `tracking` block. The old dashboard is still
+  available (`preview_dashboard.enabled = true`).
 - **Plot themes: one master stylesheet for every figure** (`viz/theme.py`,
   `viz/themes/{default,legacy,paper}.toml`, `docs/plotting.md`). Themes hold
   backend-neutral tokens, named colours and colour scales, matplotlib rcParams,

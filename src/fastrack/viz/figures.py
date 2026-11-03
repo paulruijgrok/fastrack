@@ -95,11 +95,21 @@ register_figure(FigureSpec(
     defaults=dict(dpi=200),
 ))
 register_figure(FigureSpec(
-    "preview_dashboard", "Preview dashboard", "fast-preview", "diagnostic",
-    "<movie>_preview.*",
-    "Quick-look dashboard: overlay of moving / stuck / floppy / pinned "
-    "filaments, length and velocity histograms, ranked quality bars, examples.",
-    defaults=dict(dpi=80),
+    "preview_report", "Preview report", "fast-preview", "diagnostic",
+    "<movie>_preview.pdf, <movie>_preview_p<N>.png",
+    "Portrait report per movie. Page 1: verdict and headline numbers, velocity / "
+    "length-velocity / length plots, quality scores with the suggested fix, the frame "
+    "with tracks (if it fits at >= overlay_min_width of the page). Page 2: overlay "
+    "(otherwise), floppy / pinned examples, tracking statistics.",
+    defaults=dict(dpi=150, page_size="letter", overlay_page="auto", overlay_min_width=0.667,
+                  overlay_width=0.68, slider="status", time_colormap="viridis"),
+))
+register_figure(FigureSpec(
+    "preview_dashboard", "Preview dashboard (old)", "fast-preview", "diagnostic",
+    "<movie>_dashboard.png",
+    "The earlier one-page quick-look dashboard (off by default; "
+    "--plot preview_dashboard.enabled=true).",
+    defaults=dict(dpi=80, enabled=False),
 ))
 register_figure(FigureSpec(
     "polarity_montage", "Polarity classification montage", "fastplus", "diagnostic",

@@ -47,7 +47,9 @@ fast-preview /path/to/movie --latest   # newest frames of a movie still being ac
 
 Analyses 20 frames at 2x2 binning and ranks image-quality problems (focus,
 signal-to-noise, illumination flatness, background, saturation, density, stuck /
-floppy and pinned filaments, bleaching, frame rate) worst first, with advice. See
+floppy and pinned filaments, bleaching, frame rate) worst first, with advice,
+and writes a per-movie PDF report (verdict, headline numbers, plots, quality
+scores, the tracks on a frame, tracking statistics). See
 [docs/preview.md](docs/preview.md).
 
 ## Package structure
