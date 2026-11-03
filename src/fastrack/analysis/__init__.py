@@ -4,6 +4,7 @@ from .fitting import (
     fit_coupling_velocity,
     fit_gaussian,
     fit_length_velocity,
+    fit_plateau,
     gaussian,
     length_velocity,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "length_velocity",
     "coupling_velocity",
     "fit_coupling_velocity",
+    "fit_plateau",
     "bin_length_velocity",
     "contour2contour",
     "vec_length",

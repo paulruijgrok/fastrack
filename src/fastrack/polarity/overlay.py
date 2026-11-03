@@ -82,6 +82,7 @@ def save_classification_montage(
     max_frames: int = 12,
     cols: int = 4,
     filament_by_frame: Optional[Dict[int, Sequence]] = None,
+    theme=None,
 ) -> Optional[str]:
     """Grid of frames with detected filament contours + heads coloured by class.
 
@@ -97,35 +98,39 @@ def save_classification_montage(
     except Exception:
         return None
 
-    n = min(max_frames, head_stack.shape[0])
-    rows = int(np.ceil(n / cols))
-    fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
-    axes = np.atleast_1d(axes).ravel()
-    for i in range(n):
-        ax = axes[i]
-        ax.imshow(_norm8(head_stack[i]), cmap="gray")
-        if filament_by_frame:
-            for fil in filament_by_frame.get(i, []):
-                cxy = _contour_xy(fil)
-                if cxy is not None:
-                    ax.plot(cxy[:, 0], cxy[:, 1], "-", color=_FIL_COLOR,
-                            lw=0.8, alpha=0.7)
-        for pf in polar_by_frame.get(i, []):
-            for (x, y, cls) in _marked_points(pf):
-                ax.plot(x, y, "o", mfc="none", mec=_COLORS[cls], ms=9, mew=1.4)
-        ax.set_title("frame %d" % i, fontsize=8)
-        ax.axis("off")
-    for j in range(n, len(axes)):
-        axes[j].axis("off")
-    legend = [Line2D([0], [0], marker="o", color="w", markerfacecolor="none",
-                     markeredgecolor=c, label=k, markersize=8)
-              for k, c in _COLORS.items()]
-    legend.append(Line2D([0], [0], color=_FIL_COLOR, lw=1.5, label="filament"))
-    fig.legend(handles=legend, loc="lower center", ncol=5, fontsize=8)
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
-    fig.savefig(out_path, dpi=110)
-    plt.close(fig)
-    return out_path
+    from ..viz.theme import as_theme
+    with as_theme(theme).figure('polarity_montage') as fx:
+        if not fx.enabled:
+            return None
+        n = min(max_frames, head_stack.shape[0])
+        rows = int(np.ceil(n / cols))
+        fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
+        axes = np.atleast_1d(axes).ravel()
+        for i in range(n):
+            ax = axes[i]
+            ax.imshow(_norm8(head_stack[i]), cmap="gray")
+            if filament_by_frame:
+                for fil in filament_by_frame.get(i, []):
+                    cxy = _contour_xy(fil)
+                    if cxy is not None:
+                        ax.plot(cxy[:, 0], cxy[:, 1], "-", color=_FIL_COLOR,
+                                lw=0.8, alpha=0.7)
+            for pf in polar_by_frame.get(i, []):
+                for (x, y, cls) in _marked_points(pf):
+                    ax.plot(x, y, "o", mfc="none", mec=_COLORS[cls], ms=9, mew=1.4)
+            ax.set_title("frame %d" % i, fontsize=8)
+            ax.axis("off")
+        for j in range(n, len(axes)):
+            axes[j].axis("off")
+        legend = [Line2D([0], [0], marker="o", color="w", markerfacecolor="none",
+                         markeredgecolor=c, label=k, markersize=8)
+                  for k, c in _COLORS.items()]
+        legend.append(Line2D([0], [0], color=_FIL_COLOR, lw=1.5, label="filament"))
+        fig.legend(handles=legend, loc="lower center", ncol=5, fontsize=8)
+        fig.tight_layout(rect=(0, 0.04, 1, 1))
+        written = fx.save(fig, out_path)
+        plt.close(fig)
+        return written[0] if written else None
 
 
 def save_frame_average_plot(
@@ -138,6 +143,7 @@ def save_frame_average_plot(
     fit_label: Optional[str] = None,
     bands: Optional[Sequence] = None,
     band_colors: Optional[Sequence[str]] = None,
+    theme=None,
 ) -> Optional[str]:
     """Plot mean signed velocity vs time with percentile bands, switches, and fit.
 
@@ -162,58 +168,63 @@ def save_frame_average_plot(
 
     # Explicit, modest font sizes (don't inherit whatever rcParams the env has),
     # and a comfortably large axes so labels never dominate the plot.
-    FS = {"title": 13, "label": 11, "tick": 10, "legend": 9}
-    fig, ax = plt.subplots(figsize=(10, 5.5), constrained_layout=True)
+    FS = {"title": 13, "label": 11, "tick": 10, "legend": 9}   # scaled by the theme below
+    from ..viz.theme import as_theme
+    with as_theme(theme).figure('frame_average') as fx:
+        if not fx.enabled:
+            return None
+        FS = {k: fx.fs(v) for k, v in FS.items()}
+        fig, ax = plt.subplots(figsize=(10, 5.5), constrained_layout=True)
 
-    ax.axhline(0, color="0.7", lw=0.8, zorder=0)
+        ax.axhline(0, color="0.7", lw=0.8, zorder=0)
 
-    # shade "lit" (perturbation ON) intervals
-    for k, iv in enumerate(lit_intervals_s or ()):
-        ax.axvspan(iv[0], iv[1], color="tab:blue", alpha=0.10,
-                   label="light ON" if k == 0 else None, zorder=0)
+        # shade "lit" (perturbation ON) intervals
+        for k, iv in enumerate(lit_intervals_s or ()):
+            ax.axvspan(iv[0], iv[1], color="tab:blue", alpha=0.10,
+                       label="light ON" if k == 0 else None, zorder=0)
 
-    # central-percentile bands (outermost drawn first / behind), else ±SEM
-    if bands:
-        palette = list(band_colors or ["gray", "whitesmoke", "silver"])
-        nb = len(bands)
-        for j in range(nb - 1, -1, -1):                 # outer (last pair) first
-            lo, hi, lbl = bands[j]
-            ci = -(nb - j)                              # outer -> palette[-1]
-            color = palette[ci] if abs(ci) <= len(palette) else "whitesmoke"
-            ax.fill_between(t, lo, hi, color=color, alpha=1.0,
-                            zorder=1 + (nb - 1 - j), label=lbl)
-    else:
-        ax.fill_between(t, m - sem, m + sem, color="0.80", label="± SEM", zorder=1)
-    ax.plot(t, m, "-", color="0.20", lw=1.2, label="mean signed velocity", zorder=5)
+        # central-percentile bands (outermost drawn first / behind), else ±SEM
+        if bands:
+            palette = list(band_colors or ["gray", "whitesmoke", "silver"])
+            nb = len(bands)
+            for j in range(nb - 1, -1, -1):                 # outer (last pair) first
+                lo, hi, lbl = bands[j]
+                ci = -(nb - j)                              # outer -> palette[-1]
+                color = palette[ci] if abs(ci) <= len(palette) else "whitesmoke"
+                ax.fill_between(t, lo, hi, color=color, alpha=1.0,
+                                zorder=1 + (nb - 1 - j), label=lbl)
+        else:
+            ax.fill_between(t, m - sem, m + sem, color="0.80", label="± SEM", zorder=1)
+        ax.plot(t, m, "-", color="0.20", lw=1.2, label="mean signed velocity", zorder=5)
 
-    for k, pt in enumerate(perturbation_times_s or ()):
-        ax.axvline(pt, color="tab:purple", ls="--", lw=1.0,
-                   label="switch" if k == 0 else None, zorder=2)
+        for k, pt in enumerate(perturbation_times_s or ()):
+            ax.axvline(pt, color="tab:purple", ls="--", lw=1.0,
+                       label="switch" if k == 0 else None, zorder=2)
 
-    # preferred: a single continuous fitted curve
-    if fit_curve is not None:
-        ft, fv = np.asarray(fit_curve[0], float), np.asarray(fit_curve[1], float)
-        ax.plot(ft, fv, "-", color="tab:red", lw=2.2,
-                label=fit_label or "fit", zorder=3)
-    elif kinetics:
-        from ..analysis.kinetics import KineticModelFitter
-        for k, res in enumerate(kinetics):
-            tt = np.linspace(res["t0"], t.max(), 200)
-            yy = KineticModelFitter.predict(res["model"], tt, res)
-            ax.plot(tt, yy, "-", color="tab:red", lw=2.0,
-                    label=("fit: %s τ=%.2g s" % (res["model"], res["tau"]))
-                    if k == 0 else "%s τ=%.2g s" % (res["model"], res["tau"]),
-                    zorder=3)
+        # preferred: a single continuous fitted curve
+        if fit_curve is not None:
+            ft, fv = np.asarray(fit_curve[0], float), np.asarray(fit_curve[1], float)
+            ax.plot(ft, fv, "-", color="tab:red", lw=2.2,
+                    label=fit_label or "fit", zorder=3)
+        elif kinetics:
+            from ..analysis.kinetics import KineticModelFitter
+            for k, res in enumerate(kinetics):
+                tt = np.linspace(res["t0"], t.max(), 200)
+                yy = KineticModelFitter.predict(res["model"], tt, res)
+                ax.plot(tt, yy, "-", color="tab:red", lw=2.0,
+                        label=("fit: %s τ=%.2g s" % (res["model"], res["tau"]))
+                        if k == 0 else "%s τ=%.2g s" % (res["model"], res["tau"]),
+                        zorder=3)
 
-    ax.set_xlabel("time (s)", fontsize=FS["label"])
-    ax.set_ylabel("signed velocity (nm/s)   [+ = toward (+)-end]", fontsize=FS["label"])
-    ax.set_title("Per-frame mean directional velocity", fontsize=FS["title"])
-    ax.tick_params(labelsize=FS["tick"])
-    ax.margins(x=0.01)
-    ax.legend(fontsize=FS["legend"], loc="upper right", framealpha=0.9)
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    return out_path
+        ax.set_xlabel("time (s)", fontsize=FS["label"])
+        ax.set_ylabel("signed velocity (nm/s)   [+ = toward (+)-end]", fontsize=FS["label"])
+        ax.set_title("Per-frame mean directional velocity", fontsize=FS["title"])
+        ax.tick_params(labelsize=FS["tick"])
+        ax.margins(x=0.01)
+        ax.legend(fontsize=FS["legend"], loc="upper right", framealpha=0.9)
+        written = fx.save(fig, out_path)
+        plt.close(fig)
+        return written[0] if written else None
 
 
 def save_overlay_movie(
@@ -222,6 +233,7 @@ def save_overlay_movie(
     out_path: str,
     fps: int = 10,
     filament_by_frame: Optional[Dict[int, Sequence]] = None,
+    theme=None,
 ) -> Optional[str]:
     """mp4 of the head channel with filament contours + polarity markers.
 

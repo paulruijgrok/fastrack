@@ -12,8 +12,9 @@ fast-preview /path/to/movie --config configs/taka.toml   # pixel size, stuck thr
 ```
 
 For each movie it prints a short report and writes (default
-`outputs/preview/<name>/`) a `<movie>_preview.json`, a dashboard
-`<movie>_preview.png` and a `preview_summary.csv` across movies:
+`outputs/preview/<name>/`) a `<movie>_preview.json`, a **report**
+(`<movie>_preview.pdf`, and the same pages as `<movie>_preview_p1.png`,
+`_p2.png`, ...; see below) and a `preview_summary.csv` across movies:
 
 ```
 WT_250nM_1  [POOR]  20 frames, bin 2, ridge-fast, 5.7 s
@@ -29,6 +30,40 @@ WT_250nM_1  [POOR]  20 frames, bin 2, ridge-fast, 5.7 s
     GOOD      Bleaching                                    1.15 %/frame
     ...
 ```
+
+## The report
+
+A portrait document (US letter; `--plot preview_report.page_size='"a4"'` for A4):
+
+* **Page 1 – main findings.** Movie name and run line (frames, frame
+  interval, binning, detector, pixel size, analysis time, date); a summary
+  with the quality verdict, mean velocity (top 5 % beneath), stuck % and
+  filament length, and one sentence naming the main issue; three small plots in
+  the FAST style (velocity histogram of the moving 5-step windows, length vs
+  velocity with the fastest window per track as triangles, length histogram
+  with stuck filaments as an outline); the **quality scores**, worst first, each
+  as name + value and a slider on a light track (poor left, good right; the
+  marker coloured green / orange / red by status); and the suggested fix for
+  the main issue (plus up to two more).
+* **Page 2 and on – supporting data.** The middle frame with the filaments
+  (moving / stuck / floppy / pinned) and their tracks over the window, at
+  ~2/3 of the page width; floppy and pinned example tracks; a tracking
+  statistics table (links, tracks, tracks analysed / moving / stuck, track
+  lengths, velocity windows, timings); every quality metric with its good /
+  poor thresholds.
+
+The frame overlay goes on page 1 only if it fits there at
+`overlay_min_width` (2/3) of the page width -- with 12 quality rows it does
+not, so it opens page 2. Options (`[figures.preview_report]` in a theme,
+`[plotting.preview_report]` in a config, or `--plot preview_report.<option>=...`):
+`page_size`, `overlay_page` (`"auto"`, `"1"`, `"2"`), `overlay_min_width`,
+`overlay_width`, `slider` (`"status"`: marker coloured by status; `"zones"`:
+dark marker on a red / orange / green track), `formats` (default
+`["pdf", "png"]`). The old one-page dashboard can still be written with
+`--plot preview_dashboard.enabled=true` (`<movie>_dashboard.png`).
+
+The JSON also gains a `tracking` block (frame interval, links, tracks,
+tracks analysed / moving / stuck, track lengths).
 
 ## What it reports
 
@@ -135,7 +170,7 @@ print(platform.machine())"` — use a native environment (Miniforge, arm64).
 
 Both are computed from the tracked contours (`analysis/track_shape.py`); the
 dashboard draws the flagged tracks on the image (orange / magenta) and shows a
-strip of examples with the contours coloured by time.
+strip of examples with the contours coloured by time (report page 2).
 
 **Floppy — leaving the track.** A filament gliding on a well-attached motor
 lawn follows its own track: every part of the new contour lies on the curve of

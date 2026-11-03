@@ -47,7 +47,9 @@ fast-preview /path/to/movie --latest   # newest frames of a movie still being ac
 
 Analyses 20 frames at 2x2 binning and ranks image-quality problems (focus,
 signal-to-noise, illumination flatness, background, saturation, density, stuck /
-floppy and pinned filaments, bleaching, frame rate) worst first, with advice. See
+floppy and pinned filaments, bleaching, frame rate) worst first, with advice,
+and writes a per-movie PDF report (verdict, headline numbers, plots, quality
+scores, the tracks on a frame, tracking statistics). See
 [docs/preview.md](docs/preview.md).
 
 ## Package structure
@@ -69,7 +71,7 @@ src/fastrack/
 │   └── input/           # movie input adapters (micro-manager dirs, TIFF stacks)
 ├── analysis/            # fitting, velocity metrics, geometry (pure numeric)
 ├── io/                  # images, stores (npy/npz), export (csv), movie (ffmpeg)
-├── viz/                 # plotparams + the length-velocity / 2D-path plots
+├── viz/                 # plot themes (themes/*.toml), figure catalogue, the plots
 ├── pipelines/           # gliding (the `fast` driver), loaded (LIMA), batch
 └── cli/                 # console entry points: fast, lima, stack2tifs, fast-batch, fast-preview
 ```
@@ -337,7 +339,7 @@ From the project root:
 fast -d examples/unloaded_motility/micromanager_tifs
 ```
 
-Results are written under `outputs/<dataset>__pt_none__n_5__ymax_1500__p_5__fx_none/`,
+Results are written under `outputs/<dataset>__pt_none__n_5__ymax_auto__p_5__fx_none/`,
 including per-movie `*_length_velocity.png` plots and combined
 `combined/MEAN_values.txt` / `combined/SEM_values.txt`.
 
@@ -436,6 +438,22 @@ and per-experiment ones (e.g. `configs/taka.toml`), and
 [`datasets/`](datasets/README.md) the `fast-batch` manifests (e.g.
 `datasets/taka.csv`); each folder's README indexes what is there. The test suite
 loads every file in both, so they stay valid.
+### Figures and plot themes
+
+All figures take their look from one master stylesheet, a TOML theme
+(`default`, `legacy` = the original FAST look, `paper`, or your own file), which
+`[plotting.*]` in a config and `--plot key=value` on the command line can
+override per figure. Summary figures (length-velocity, paths, LIMA, fastplus
+frame average) are written as **PNG + PDF + SVG**; each output folder gets a
+`figures.json` index of the figures written.
+
+```bash
+fast -d <dataset> --theme legacy
+fast -d <dataset> --plot paths_2D.colormap=blue-red --plot-formats png pdf
+```
+
+Themes, every figure and its options, and how to add a figure:
+**[docs/plotting.md](docs/plotting.md)**.
 
 The dominant per-frame cost is the two radius-15 local percentile filters in
 `entropy_clusters` (and `check_picture_quality`). scikit-image rank filters keep

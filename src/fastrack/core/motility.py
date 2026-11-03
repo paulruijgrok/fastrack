@@ -383,9 +383,58 @@ class Motility(MotilityPlots):
         return False
 
     def reconstruct_skeleton_images(self, frame_label=False, time_label=False,
-                                    frame_interval_s=1.0, font_scale=0.6):
-        if not os.path.isfile(self.directory + "/paths_2D.png"):
+                                    frame_interval_s=1.0, font_scale=0.6, theme=None):
+        """Movie frames: each frame's skeletons + velocity arrows over the tracks.
+
+        The background is the tracks image.  With the velocity-style paths
+        figure (different size and a colourbar), a background with exactly the
+        frames' geometry is drawn first (``paths_2D_movie_bg.png``); the legacy
+        figure already has it (``paths_2D.png``).
+        """
+        from ..viz.theme import as_theme
+        th = as_theme(theme)
+        data = getattr(self, "_paths2d_data", None)
+        if data is not None:
+            with matplotlib.rc_context(th.mpl_rc()):
+                paths_fname = self._render_movie_background(data, th)
+        else:
+            paths_fname = os.path.join(self.directory, "paths_2D.png")
+        if not os.path.isfile(paths_fname):
             return
+        with matplotlib.rc_context(th.mpl_rc()):
+            self._reconstruct_skeleton_frames(paths_fname, frame_label, time_label,
+                                              frame_interval_s, font_scale)
+
+    def _render_movie_background(self, data, th):
+        """Tracks drawn in the movie frames' geometry (same figure as the frames)."""
+        from matplotlib.collections import LineCollection
+        sc = th.scheme(getattr(self, "_paths2d_colormap", None) or "blue")
+        vmax, v_mid = data["vmax"], data["v_median"]
+        if sc["centred"] and 0 < v_mid < vmax:
+            norm = matplotlib.colors.TwoSlopeNorm(vcenter=v_mid, vmin=0, vmax=vmax)
+        else:
+            norm = matplotlib.colors.Normalize(0, vmax)
+        py.figure()
+        py.imshow(np.nan * np.ones((self.width, self.height), dtype=float), cmap=cm.gray,
+                  alpha=1.0)
+        ax = py.gca()
+        moving = [(t, v) for t, v, s_ in zip(data["tracks"], data["velocity"], data["stuck"])
+                  if not s_ and len(t) > 1]
+        static = [t for t, s_ in zip(data["tracks"], data["stuck"]) if s_ and len(t) > 1]
+        if static:
+            ax.add_collection(LineCollection(static, colors=sc["stuck"], linewidths=1.0))
+        if moving:
+            ax.add_collection(LineCollection([t for t, _ in moving], linewidths=1.0,
+                                             colors=[sc["cmap"](norm(v)) for _, v in moving]))
+        ax.xaxis.set_visible(False)
+        ax.yaxis.set_visible(False)
+        fname = os.path.join(self.directory, "paths_2D_movie_bg.png")
+        py.savefig(fname, dpi=400, transparent=False)
+        py.close()
+        return fname
+
+    def _reconstruct_skeleton_frames(self, paths_fname, frame_label, time_label,
+                                     frame_interval_s, font_scale):
 
         # Prefer acquisition metadata for the time label; load it if needed.
         if time_label and len(self.elapsed_times) == 0:
@@ -459,7 +508,6 @@ class Motility(MotilityPlots):
                              fontsize=label_fs, color="white", family="monospace", bbox=box)
 
             skeleton_fname = os.path.join(self.directory, "skeletons_%03d.png" % (i))
-            paths_fname = os.path.join(self.directory, "paths_2D.png")
             py.savefig(skeleton_fname, dpi=400, transparent=True)
             py.close()
 

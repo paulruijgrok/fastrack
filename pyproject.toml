@@ -24,6 +24,7 @@ dependencies = [
     "matplotlib>=3.6",
     "imageio>=2.19",
     "pillow>=9.0",
+    "tomli>=1.1; python_version < '3.11'",   # plot themes / TOML configs on old Pythons
 ]
 
 [project.optional-dependencies]
@@ -59,6 +60,9 @@ plus-register = [
 # Optional: use laptrack's exact Jaqaman LAP solver instead of the built-in
 # Kalman-LAP head tracker (selected by name in settings).
 plus-laptrack = ["fastrack[plus]", "laptrack>=0.16"]
+# Interactive (html) figures and data viewers. Prepared in viz/theme.py and
+# viz/figures.py; no figure has a Bokeh renderer yet.
+interactive = ["bokeh>=3.1"]
 
 [project.scripts]
 fast = "fastrack.cli:fast_main"
@@ -70,6 +74,9 @@ fast-preview = "fastrack.cli:fast_preview_main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+
+[tool.setuptools.package-data]
+"fastrack.viz" = ["themes/*.toml"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

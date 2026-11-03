@@ -145,14 +145,18 @@ class Frame:
                 tuple(filament.xy_norm)
             ]
 
-    def save_filament_img(self):
-        py.figure()
-        py.imshow(self.img_filaments, cmap=cm.gray)
-        ax = py.gca()
-        ax.xaxis.set_visible(False)
-        ax.yaxis.set_visible(False)
-        py.savefig(self.directory + "/filaments_%03d.png" % (self.frame_no), dpi=200)
-        py.close()
+    def save_filament_img(self, theme=None):
+        from ..viz.theme import as_theme
+        with as_theme(theme).figure("filaments_frame") as fx:
+            if not fx.enabled:
+                return
+            fig = py.figure()
+            py.imshow(self.img_filaments, cmap=cm.gray)
+            ax = py.gca()
+            ax.xaxis.set_visible(False)
+            ax.yaxis.set_visible(False)
+            fx.save(fig, self.directory + "/filaments_%03d" % (self.frame_no))
+            py.close(fig)
 
     def calc_fil_corr_funcs(self):
         for filament in self.filaments:

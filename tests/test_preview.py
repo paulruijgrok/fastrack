@@ -124,10 +124,14 @@ def test_preview_recovers_known_velocity_length_and_stuck(tmp_path):
     assert r["metrics"]["pinned_pct"] == 0.0
     assert set(r["seconds"]) >= {"read", "preprocess", "detect", "link", "total"}
     safe = name.replace(os.sep, "__")
-    for f in (safe + "_preview.json", safe + "_preview.png", "preview_summary.csv"):
+    for f in (safe + "_preview.json", safe + "_preview.pdf", safe + "_preview_p1.png",
+              safe + "_preview_p2.png", "preview_summary.csv"):
         assert os.path.exists(os.path.join(out, f)), f
+    assert not os.path.exists(os.path.join(out, safe + "_dashboard.png"))   # old one: off
     js = json.load(open(os.path.join(out, safe + "_preview.json")))
     assert js["verdict"] == r["verdict"] and js["settings"]["bin"] == 2
+    tr = js["tracking"]
+    assert tr["tracks_analysed"] >= 6 and tr["tracks_moving"] >= 6 and tr["links"] > 0
 
 
 @needs_ridge

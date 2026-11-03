@@ -469,6 +469,8 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
         velocity_cv_median=float(np.median(vel_cv)) if vel_cv else None,
         attachment=dict(floppy_tracks=len(att["floppy_paths"]), pinned_tracks=len(att["pinned_paths"]),
                         tracks_for_floppy=att["n_floppy_tracks"], tracks_for_pinned=att["n_pinned_tracks"]),
+        tracking=_tracking_stats(m, used, et if timing == "metadata" else None,
+                                 s.num_frames_ave, dx),
     )
     T["stats"] = time.perf_counter() - t
     T["total"] = time.perf_counter() - t0
@@ -478,8 +480,48 @@ def analyse_movie(descriptor, settings: PreviewSettings = None, pool=None, keep_
                                moving=filxys[used[len(used) // 2]], static=static,
                                lengths_um=det_len_um, static_lengths_um=static_len_um,
                                velocities=moving_v,
+                               len_vel=flv[:, :2].copy(),
+                               max_len_vel=(np.asarray(m.max_len_vel)[:, :2].copy()
+                                            if len(m.max_len_vel) else np.zeros((0, 2))),
+                               tracks=_track_trails(m.paths, s.num_frames_ave),
+                               dx_nm=dx,
                                **_attachment_tracks(att))
     return result
+
+
+def _tracking_stats(m, used, elapsed, num_frames_ave, dx):
+    """Counts describing the linking / tracking (for the report's table)."""
+    paths = list(m.paths)
+    long_ = [p for p in paths if len(p.links) >= num_frames_ave]
+    stuck = [p for p in long_ if getattr(p, "stuck", False)]
+    links = [len(p.links) for p in paths]
+    n_links = int(sum(len(fl) for fl in m.frame_links)) if getattr(m, "frame_links", None) else None
+    if elapsed is not None and len(used) > 1:
+        dt = float(np.median(np.diff([elapsed[i] for i in used])))
+    else:
+        dt = float(getattr(m, "dt", 1.0) or 1.0)
+    return dict(
+        frame_interval_s=dt,
+        links=n_links,
+        tracks=len(paths),
+        tracks_analysed=len(long_),
+        tracks_moving=len(long_) - len(stuck),
+        tracks_stuck=len(stuck),
+        median_track_links=float(np.median(links)) if links else None,
+        max_track_links=int(max(links)) if links else None,
+        min_track_links=int(num_frames_ave),
+        pixel_nm=float(dx),
+    )
+
+
+def _track_trails(paths, num_frames_ave):
+    """Midpoint trails (x = col, y = row) of the analysed tracks + stuck flags."""
+    from ..viz.plots import track_midpoints
+    out = []
+    for p in paths:
+        if len(p.links) >= num_frames_ave:
+            out.append((track_midpoints(p), bool(getattr(p, "stuck", False))))
+    return out
 
 
 def _attachment_tracks(att):
@@ -533,12 +575,27 @@ def format_report(name, r):
     return "\n".join(lines)
 
 
-def plot_dashboard(name, r, path):
+def plot_dashboard(name, r, path, theme=None):
+    """Write the preview report (``preview_report``: PDF + one PNG per page) and,
+    if enabled, the old one-page dashboard (``preview_dashboard``).
+
+    ``path`` is the output stem (an extension is ignored).
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    with matplotlib.rc_context(matplotlib.rcParamsDefault):
-        _plot_dashboard(plt, name, r, path)
+    from ..viz.preview_report import render_report
+    from ..viz.theme import as_theme
+    th = as_theme(theme)
+    stem = os.path.splitext(path)[0] if path.lower().endswith(".png") else path
+    files = []
+    with th.figure("preview_report") as fx:
+        if fx.enabled:
+            files += render_report(name, r, stem, fx)
+    with th.figure("preview_dashboard") as fx:
+        if fx.enabled:
+            files += _plot_dashboard(plt, name, r, stem.replace("_preview", "") + "_dashboard", fx)
+    return files
 
 
 def _track_strip(fig, cell, img, P, r, n=7):
@@ -575,8 +632,7 @@ def _track_strip(fig, cell, img, P, r, n=7):
             ax.text(0, 1.25, head, transform=ax.transAxes, fontsize=9)
 
 
-def _plot_dashboard(plt, name, r, path):
-    # rcParamsDefault: other FASTrack plotting modules set large global fonts.
+def _plot_dashboard(plt, name, r, path, fx):
     P = r["_plot"]
     fig = plt.figure(figsize=(16, 11))
     gs = fig.add_gridspec(3, 3, width_ratios=[1.7, 1, 1], height_ratios=[1, 1, 0.75])
@@ -585,11 +641,11 @@ def _plot_dashboard(plt, name, r, path):
     ax.imshow(img, cmap="gray", vmin=0, vmax=np.percentile(img, 99.8))
     for e in P["moving"]:
         c = np.asarray(e[0])
-        ax.plot(c[:, 1], c[:, 0], "-", color="lime", lw=0.8)
+        ax.plot(c[:, 1], c[:, 0], "-", color=fx.color("preview_moving"), lw=0.8)
     for e in P["static"]:
         c = np.asarray(e[0])
-        ax.plot(c[:, 1], c[:, 0], "-", color="red", lw=1.0)
-    for key, col in (("floppy", "orange"), ("pinned", "magenta")):
+        ax.plot(c[:, 1], c[:, 0], "-", color=fx.color("preview_stuck"), lw=1.0)
+    for key, col in (("floppy", fx.color("floppy")), ("pinned", fx.color("pinned"))):
         for track in P.get(key, []):
             for c in track:
                 ax.plot(c[:, 1], c[:, 0], "-", color=col, lw=0.6, alpha=0.7)
@@ -614,8 +670,7 @@ def _plot_dashboard(plt, name, r, path):
                                                _fmt(r["stuck_pct"], 1)), fontsize=10)
     ax = fig.add_subplot(gs[1, 1:])
     q = r["quality"][::-1]
-    colors = ["tab:green" if x["status"] == "good" else ("orange" if x["status"] == "marginal"
-              else "tab:red") for x in q]
+    colors = [fx.color(x["status"]) for x in q]
     ax.barh([x["label"] for x in q], [x["score"] for x in q], color=colors)
     for i, x in enumerate(q):
         ax.text(0.01, i, "%s %s" % (_fmt(x["value"], 2), x["unit"]), va="center", fontsize=8)
@@ -623,8 +678,9 @@ def _plot_dashboard(plt, name, r, path):
     ax.set_xlabel("quality score (1 = good)")
     ax.tick_params(axis="y", labelsize=8)
     fig.tight_layout()
-    fig.savefig(path, dpi=80)
+    files = fx.save(fig, path)
     plt.close(fig)
+    return files
 
 
 # --------------------------------------------------------------------------- #
@@ -648,7 +704,8 @@ def _descriptors(path, frame_rate):
     return out
 
 
-def run(path, settings: PreviewSettings = None, out_dir=None, plot=True, quiet=False):
+def run(path, settings: PreviewSettings = None, out_dir=None, plot=True, quiet=False,
+        theme=None):
     """Preview every movie under ``path``; print reports, write JSON/CSV/PNG.
 
     Returns ``{name: result}``.  Outputs (when ``out_dir`` is given): one
@@ -678,7 +735,8 @@ def run(path, settings: PreviewSettings = None, out_dir=None, plot=True, quiet=F
             if out_dir:
                 if plot:
                     t = time.perf_counter()
-                    plot_dashboard(name, r, os.path.join(out_dir, safe + "_preview.png"))
+                    plot_dashboard(name, r, os.path.join(out_dir, safe + "_preview"),
+                                   theme=theme)
                     r["seconds"]["plot"] = round(time.perf_counter() - t, 3)
                 r.pop("_plot", None)
                 with open(os.path.join(out_dir, safe + "_preview.json"), "w") as f:
